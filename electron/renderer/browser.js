@@ -188,14 +188,28 @@ function handleJS(code, actionId) {
       function clickEl(selector) {
         const el = typeof selector === 'string' ? document.querySelector(selector) : selector;
         if (!el) {
-          // Return diagnostic: what buttons ARE in the page
-          const btns = [...document.querySelectorAll('button,[role="button"]')]
-            .map(b => (b.className || b.id || b.innerText || '').slice(0,40))
-            .filter(Boolean).slice(0,8).join(' | ');
+          const btns = [...document.querySelectorAll('button,[role="button"],pie-button,pie-icon-button')]
+            .map(b => (b.className || b.id || b.innerText || b.tagName || '').slice(0,40))
+            .filter(Boolean).slice(0,10).join(' | ');
           return 'NOT FOUND: ' + (typeof selector === 'string' ? selector : '?') + ' — visible buttons: ' + btns;
         }
         el.click();
         return 'clicked: ' + (el.className || el.id || el.innerText || el.tagName).slice(0,60);
+      }
+      // ── Web Component helper (PIE-RADIO, PIE-BUTTON, etc. with shadow DOM) ──
+      function clickWC(tagOrText) {
+        // 1. Try by tag name + text match
+        const all = [...document.querySelectorAll(tagOrText.includes('-') ? tagOrText : '*')]
+          .filter(e => e.tagName && e.tagName.includes('-'));
+        // 2. Try any custom element whose textContent matches
+        const byText = [...document.querySelectorAll('*')]
+          .filter(e => e.tagName.includes('-') && e.textContent.toLowerCase().includes(tagOrText.toLowerCase()));
+        const target = all[0] || byText[0];
+        if (target) { target.click(); return 'clicked WC: ' + target.tagName + ' ' + target.textContent.trim().slice(0,40); }
+        // 3. Diagnostic
+        const wcs = [...document.querySelectorAll('*')].filter(e=>e.tagName.includes('-'))
+          .map(e=>e.tagName+'['+e.textContent.trim().slice(0,20)+']').slice(0,8).join(' | ');
+        return 'WC NOT FOUND: ' + tagOrText + ' — available: ' + wcs;
       }
       // ── Claude code ──
       return (function(){ ${code} })();
@@ -361,7 +375,8 @@ const DOM_EXTRACTOR_JS = `
   }
   const out = { url: location.href, title: document.title, buttons: [], inputs: [], links: [], text: '' };
 
-  document.querySelectorAll('button,[role="button"],[type="submit"],[type="button"],[role="tab"],[role="menuitem"],[role="option"]').forEach(el => {
+  // Include web components (custom elements with '-' in tag name)
+  document.querySelectorAll('button,[role="button"],[type="submit"],[type="button"],[role="tab"],[role="menuitem"],[role="option"],pie-button,pie-icon-button,pie-radio,[class*="radio"],[class*="Radio"]').forEach(el => {
     if (!vis(el)) return;
     const r = el.getBoundingClientRect();
     out.buttons.push({
@@ -407,6 +422,19 @@ const DOM_EXTRACTOR_JS = `
 
   out.text = [...document.querySelectorAll('h1,h2,h3,[role="heading"],label')]
     .filter(vis).map(e => e.innerText.trim()).filter(Boolean).slice(0, 15).join(' | ').slice(0, 400);
+
+  // Web components (custom elements — PIE-RADIO, etc.)
+  const wcEls = [...document.querySelectorAll('*')].filter(e =>
+    e.tagName && e.tagName.includes('-') && vis(e) && e.textContent.trim()
+  );
+  if (wcEls.length) {
+    out.webcomponents = wcEls.slice(0, 20).map(e => ({
+      tag:  e.tagName.toLowerCase(),
+      text: e.textContent.trim().slice(0, 50),
+      cls:  e.className?.toString().trim().slice(0, 60) || '',
+      id:   e.id || '',
+    }));
+  }
 
   out.buttons = out.buttons.slice(0, 35);
   out.inputs  = out.inputs.slice(0, 15);

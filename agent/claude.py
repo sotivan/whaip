@@ -13,7 +13,8 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger("whaip.claude")
 
-WHP_ACTIONS = {"click", "type", "scroll", "navigate", "wait", "js", "done", "speak", "ask", "set_voice"}
+WHP_ACTIONS = {"scroll", "navigate", "wait", "js", "done", "speak", "ask", "set_voice"}
+# "click" intentionally removed — use js + clickEl()/clickWC() instead
 
 SYSTEM_PROMPT = """You are WHAIP, an autonomous AI agent that controls a web browser and has a voice conversation with the user.
 
@@ -24,7 +25,8 @@ You receive:
 
 Your job: decide the NEXT single action to get closer to the goal. Keep acting until done.
 
-Respond ONLY with a valid JSON object — no markdown, no extra text:
+Respond ONLY with a valid JSON object — no markdown, no extra text.
+NEVER use action="click". Always use action="js" with clickEl() or clickWC().
 {
   "action": "js" | "navigate" | "scroll" | "speak" | "ask" | "set_voice" | "wait" | "done",
   "code":      "<for js: JavaScript to run — ALWAYS return a descriptive string>",
@@ -77,6 +79,12 @@ COMMON PATTERNS:
   // Close a modal — use classes from snapshot, then nuclear
   return clickEl(document.querySelector('.modal-close,.close-btn,[aria-label="close"],[aria-label="cerrar"]'))
     || (document.querySelectorAll('[class*="modal"],[class*="overlay"],[class*="dialog"]').forEach(e=>e.style.display='none'),'nuked');
+
+  // WEB COMPONENTS (pie-radio, pie-button, custom elements with '-' in tag):
+  // Use clickWC('text-to-match') or clickWC('tag-name') — works with shadow DOM
+  // Example: clickWC('Mediana')  → finds any custom element with text "Mediana"
+  // Example: clickWC('pie-radio') → clicks the first pie-radio element
+  // The DOM snapshot includes a WEBCOMPONENTS section listing all custom elements found.
 
 ══ NAVIGATION FIRST ════════════════════════════════════════════════════════════════
 
@@ -274,6 +282,11 @@ class ClaudeClient:
                         if lcls: desc += f" cls={lcls[:40]}"
                         parts_l.append(desc)
                     lines.append("LINKS: " + " | ".join(parts_l))
+
+                wcs = snap.get("webcomponents", [])
+                if wcs:
+                    parts_wc = [f'{w["tag"]}["{w["text"]}"' + (f' id={w["id"]}' if w["id"] else '') + ']' for w in wcs]
+                    lines.append("WEB COMPONENTS (usa clickWC): " + " | ".join(parts_wc))
 
                 pg_text = snap.get("text", "")
                 if pg_text:
