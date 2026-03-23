@@ -345,8 +345,16 @@ function handleNavigate(url) {
 
 window.whaip.onAgentMessage(async data => {
   if (data.type === 'screenshot:request') {
-    const b64 = await window.whaip.captureScreenshot()
-    window.whaip.sendToAgent({ type: 'screenshot:response', data: b64 })
+    // Capture ONLY the webview — so Claude's coordinates match sendInputEvent coords
+    try {
+      const image = await webview.capturePage()
+      const b64   = image.toJPEG(80).toString('base64')
+      window.whaip.sendToAgent({ type: 'screenshot:response', data: b64 })
+    } catch (e) {
+      // fallback to full window capture
+      const b64 = await window.whaip.captureScreenshot()
+      window.whaip.sendToAgent({ type: 'screenshot:response', data: b64 })
+    }
     return
   }
   if (data.type === 'action' && data.action) {
