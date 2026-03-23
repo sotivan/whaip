@@ -51,11 +51,17 @@ class TTSClient:
 
     # ── Backend resolution ─────────────────────────────────────────────────
 
+    DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel — multilingual
+
     def _resolve_backend(self) -> str:
-        if self._api_key and self._get_voice_id():
+        if self._api_key:
+            # Use saved/configured voice_id or fall back to default Rachel
+            if not self._get_voice_id():
+                self._voice_id = self.DEFAULT_VOICE_ID
+                logger.info("No voice_id configured — using default (Rachel)")
             try:
                 from elevenlabs.client import ElevenLabs  # noqa
-                logger.info("TTS backend: elevenlabs")
+                logger.info("TTS backend: elevenlabs (voice=%s)", self._get_voice_id())
                 return "elevenlabs"
             except ImportError:
                 logger.warning("elevenlabs package not installed, falling back.")
