@@ -266,6 +266,24 @@ class VoiceListener:
                 logger.debug("Rejected hallucination (non-latin chars): %s", text[:60])
                 return ""
 
+            # Reject long transcriptions — likely background audio (ads, TV, music)
+            # Real voice commands are short (< 18 words)
+            if len(text.split()) > 18:
+                logger.debug("Rejected long transcription (background audio): %s", text[:80])
+                return ""
+
+            # Fix common proper name misrecognitions
+            CORRECTIONS = {
+                "duque": "duki",
+                "dukie": "duki",
+                "doughi": "duki",
+                "duky": "duki",
+                "duke": "duki",
+            }
+            words = text.split()
+            corrected = [CORRECTIONS.get(w.strip(".,!?"), w) for w in words]
+            text = " ".join(corrected)
+
             return text
         except Exception as exc:
             logger.error("Transcription error: %s", exc)

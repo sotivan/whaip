@@ -58,6 +58,7 @@ class AgentLoop:
         # pending screenshot response from Electron
         self._screenshot_event  = asyncio.Event()
         self._pending_screenshot: Optional[str] = None
+        self._current_task: Optional[asyncio.Task] = None
 
         self.voice  = VoiceListener(config)
         self.claude = ClaudeClient(config)
@@ -181,9 +182,21 @@ class AgentLoop:
         if not text:
             return
 
+        # New voice command → cancel whatever is running
+        if self._current_task and not self._current_task.done():
+            logger.info("New command received, cancelling current task.")
+            self._current_task.cancel()
+            try:
+                await self._current_task
+            except asyncio.CancelledError:
+                pass
+            await self.broadcast({"type": "status", "state": "idle"})
+
         logger.info("Voice goal: %s", text)
         await self.broadcast({"type": "transcript", "role": "user", "text": text})
-        await self.run_task(text)
+
+        # Run task in background so tick() returns immediately
+        self._current_task = asyncio.create_task(self.run_task(text))
 
     async def run(self) -> None:
         self.running = True
