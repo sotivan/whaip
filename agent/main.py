@@ -25,11 +25,12 @@ import yaml
 import websockets
 from websockets.server import WebSocketServerProtocol
 
-from voice  import VoiceListener
-from claude import ClaudeClient
-from intent import IntentClassifier
-from tts    import TTSClient
-from memory import UserMemory
+from voice      import VoiceListener
+from claude     import ClaudeClient
+from intent     import IntentClassifier
+from tts        import TTSClient
+from memory     import UserMemory
+from onboarding import OnboardingFlow
 
 logger = logging.getLogger("whaip.main")
 
@@ -58,13 +59,16 @@ class AgentLoop:
         self.running = False
         self._clients: set[WebSocketServerProtocol] = set()
 
-        # pending screenshot / DOM responses from Electron
+        # pending screenshot / DOM / geo responses from Electron
         self._screenshot_event  = asyncio.Event()
         self._pending_screenshot: Optional[str] = None
         self._dom_event         = asyncio.Event()
         self._pending_dom:       Optional[str] = None
+        self._geo_event         = asyncio.Event()
+        self._pending_geo:       Optional[dict] = None
         self._current_task: Optional[asyncio.Task] = None
         self._action_results: dict = {}   # action_id → result dict
+        self._onboarding_done   = False
 
         self.voice  = VoiceListener(config)
         self.claude = ClaudeClient(config)
@@ -88,6 +92,20 @@ class AgentLoop:
     def register_client(self, ws: WebSocketServerProtocol) -> None:
         self._clients.add(ws)
         logger.info("Electron connected (%d clients)", len(self._clients))
+        if len(self._clients) == 1 and not self._onboarding_done:
+            # First connection — trigger onboarding check after a short settle
+            asyncio.get_event_loop().call_later(1.5, self._schedule_onboarding)
+
+    def _schedule_onboarding(self) -> None:
+        if not self.memory.is_onboarding_done():
+            asyncio.ensure_future(self._run_onboarding())
+
+    async def _run_onboarding(self) -> None:
+        self._onboarding_done = True   # prevent re-trigger
+        self.voice.set_active(False)   # mic off during onboarding
+        flow = OnboardingFlow(self)
+        await flow.run()
+        self.voice.set_active(False)   # keep mic off — user presses button to start
 
     def unregister_client(self, ws: WebSocketServerProtocol) -> None:
         self._clients.discard(ws)
@@ -157,6 +175,18 @@ class AgentLoop:
             if text:
                 asyncio.create_task(self.say(text))
 
+        elif msg_type == "geo:response":
+            self._pending_geo = data
+            self._geo_event.set()
+
+        elif msg_type == "onboarding:answers":
+            # UI form submitted — save all answers at once
+            answers = data.get("answers", {})
+            for key, value in answers.items():
+                if value and str(value).strip():
+                    self.memory.set(key, str(value).strip())
+            logger.info("Onboarding form answers saved: %s", list(answers.keys()))
+
     # ── Wait for a specific action result ────────────────────────────────
 
     async def _wait_for_action_result(self, action_id: str, timeout: float = 12.0) -> Optional[dict]:
@@ -184,6 +214,21 @@ class AgentLoop:
             return self._pending_dom
         except asyncio.TimeoutError:
             logger.warning("DOM snapshot request timed out.")
+            return None
+
+    # ── Geolocation request ────────────────────────────────────────────────
+
+    async def request_geolocation(self, timeout: float = 8.0) -> Optional[dict]:
+        """Ask browser for current GPS location. Returns {lat, lng} or None."""
+        if not self._clients:
+            return None
+        self._pending_geo = None
+        self._geo_event.clear()
+        await self.broadcast({"type": "geo:request"})
+        try:
+            await asyncio.wait_for(self._geo_event.wait(), timeout=timeout)
+            return self._pending_geo
+        except asyncio.TimeoutError:
             return None
 
     # ── Screenshot request ─────────────────────────────────────────────────
@@ -306,6 +351,21 @@ class AgentLoop:
         profile    = self.memory.get_profile_summary()
         history    : list    = []
         round_n    = 0
+        _task_goal = goal    # keep original for recording
+
+        # ── Location context for delivery tasks ───────────────────────────
+        _DELIVERY_KEYWORDS = ("pide", "pedido", "pedir", "order", "deliver", "pizza",
+                               "comida", "glovo", "just eat", "envío", "enviar")
+        if any(k in goal.lower() for k in _DELIVERY_KEYWORDS):
+            geo = await self.request_geolocation(timeout=5.0)
+            if geo and geo.get("lat"):
+                dist = self.memory.distance_from_home_km(geo["lat"], geo["lng"])
+                if dist is not None and dist > 1.5:
+                    profile += (f"\n\n⚠️ El usuario NO está en casa ahora mismo "
+                                f"(a {dist:.1f} km de su dirección habitual). "
+                                f"Pregunta a qué dirección quiere el pedido antes de proceder.")
+                elif dist is not None:
+                    profile += f"\n\nEl usuario está cerca de su domicilio habitual ({dist:.1f} km)."
 
         await self.broadcast({"type": "status", "state": "thinking"})
 
@@ -331,6 +391,7 @@ class AgentLoop:
                 if cmd.get("text"):
                     await self.say(cmd["text"])
                 logger.info("Task done after %d rounds: %s", round_n + 1, goal)
+                self.memory.record_task(_task_goal, success=True)
                 await self.broadcast({"type": "status", "state": "idle"})
                 return
 

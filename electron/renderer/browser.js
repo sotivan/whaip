@@ -575,6 +575,23 @@ window.whaip.onAgentMessage(async data => {
     window.whaip.sendToAgent({ type: 'screenshot:response', data: b64 })
     return
   }
+  if (data.type === 'geo:request') {
+    webview.executeJavaScript(`
+      new Promise(resolve => {
+        if (!navigator.geolocation) { resolve(null); return; }
+        navigator.geolocation.getCurrentPosition(
+          p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+          () => resolve(null),
+          { timeout: 6000, maximumAge: 60000 }
+        );
+      })
+    `).then(geo => {
+      window.whaip.sendToAgent({ type: 'geo:response', ...(geo || { error: 'unavailable' }) })
+    }).catch(() => {
+      window.whaip.sendToAgent({ type: 'geo:response', error: 'unavailable' })
+    })
+    return
+  }
   if (data.type === 'dom:request') {
     try {
       const raw = await webview.executeJavaScript(DOM_EXTRACTOR_JS)

@@ -142,9 +142,15 @@ set_voice → Male: Adam=pNInz6obpgDQGcFmaJgB Antoni=ErXwobaYiN019PkySvjV Josh=T
 done   → task complete: {"action":"done","text":"Done, pizza added to cart.","reason":"..."}
 
 Rules:
-  - Profile has the info → execute directly, never ask again.
-  - Simple tasks → execute, never ask first.
-  - Missing critical info (delivery address) → ask once, then proceed.
+  - Profile has the info → use it directly, don't ask for it again.
+  - Simple tasks (search, navigate, play) → execute immediately, no confirmation needed.
+  - Missing critical info (delivery address not in profile) → ask once, then proceed.
+  - ⚠️ RECURRING PATTERNS: If the profile shows "Patrones frecuentes" matching this task,
+    ALWAYS confirm the defaults before executing. Example:
+      User says "pídeme pizza" + profile shows "pizza 4 quesos de Telepizza ×5"
+      → ask: "¿Pizza 4 quesos de Telepizza a tu dirección habitual, o quieres algo diferente?"
+    Never assume the default. Suggest it, then wait for confirmation.
+  - ⚠️ LOCATION: If the profile says the user is NOT at home, ask for delivery address before ordering.
 
 ══ SCRIPT EXAMPLE — generic ordering flow ═══════════════════════════════════════
 
