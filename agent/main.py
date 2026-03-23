@@ -145,6 +145,10 @@ class AgentLoop:
                 url=data.get("url", ""),
                 title=data.get("title", ""),
             )
+            url   = data.get("url", "")
+            title = data.get("title", "")
+            if url and not url.startswith("about:") and "chrome-extension" not in url:
+                self.memory.record_visit(url, title)
 
         elif msg_type == "dom:response":
             self._pending_dom = data.get("data")
@@ -179,6 +183,40 @@ class AgentLoop:
         elif msg_type == "geo:response":
             self._pending_geo = data
             self._geo_event.set()
+
+        elif msg_type == "bookmark:save":
+            url   = data.get("url", "")
+            title = data.get("title", "")
+            tags  = data.get("tags", "")
+            if url:
+                self.memory.add_bookmark(url, title, tags)
+                asyncio.create_task(self.say(f"Marcador guardado: {title or url[:40]}"))
+
+        elif msg_type == "bookmark:remove":
+            url = data.get("url", "")
+            if url:
+                self.memory.remove_bookmark(url)
+                asyncio.create_task(self.say("Marcador eliminado."))
+
+        elif msg_type == "password:save":
+            domain   = data.get("domain", "")
+            username = data.get("username", "")
+            password = data.get("password", "")
+            if domain and username and password:
+                self.memory.save_password(domain, username, password)
+                asyncio.create_task(self.say(f"Contraseña guardada para {domain}."))
+
+        elif msg_type == "autofill:request":
+            # Browser found a login form — look up credentials and send back to fill
+            domain = data.get("domain", "")
+            creds  = self.memory.get_password(domain) if domain else None
+            if creds:
+                await self.broadcast({
+                    "type":     "autofill:fill",
+                    "username": creds["username"],
+                    "password": creds["password"],
+                })
+                logger.info("Autofill sent for: %s", domain)
 
         elif msg_type == "onboarding:answers":
             # UI form submitted — save all answers at once
@@ -269,6 +307,28 @@ class AgentLoop:
         """
         import re
         t = intent.lower()
+
+        # ── Bookmark current page ────────────────────────────────────────────
+        if re.search(r"guarda (este|esta|el|la) (página|pag|sitio|marcador)|añade a marcadores|bookmark", t):
+            # Ask Electron for current URL+title, save as bookmark
+            await self.broadcast({"type": "bookmark:get_current"})
+            await self.say("Página guardada en marcadores.")
+            return True
+
+        if re.search(r"(muestra|ver|abre|lista) (mis |los |)marcadores", t):
+            bmarks = self.memory.get_bookmarks()
+            if not bmarks:
+                await self.say("No tienes marcadores guardados.")
+            else:
+                names = ", ".join(b["title"] or b["url"][:30] for b in bmarks[:5])
+                await self.say(f"Tus marcadores: {names}.")
+            return True
+
+        # ── Save password ───────────────────────────────────────────────────
+        if re.search(r"guarda (la |mi )contraseña|save password", t):
+            # Ask Electron for current domain, then ask user for credentials
+            await self.broadcast({"type": "password:get_domain"})
+            return True
 
         # ── Restore configured voice ("la que puse", "mi id", "la del config") ──
         if re.search(r"que puse|mi id|del config|configur|la mía|la que tengo", t):
@@ -440,6 +500,32 @@ class AgentLoop:
                     self.tts.set_voice(cmd["voice_id"])
                 await self.say(cmd.get("text", "Voz cambiada."))
                 history.append({"action": "set_voice", "reason": reason, "result": "ok"})
+                continue
+
+            if action == "autofill":
+                domain = cmd.get("domain", "")
+                creds  = self.memory.get_password(domain) if domain else None
+                if creds:
+                    action_id = f"r{round_n+1}"
+                    await self.broadcast({
+                        "type": "action",
+                        "action": "js",
+                        "_id": action_id,
+                        "code": f"""
+                            const uEl = document.querySelector('input[type="email"],input[type="text"][name*="user" i],input[type="text"][name*="email" i],input[name*="user" i],input[name*="email" i],input[id*="user" i],input[id*="email" i]');
+                            const pEl = document.querySelector('input[type="password"]');
+                            let r = '';
+                            if(uEl) r += setInput(uEl, {json.dumps(creds['username'])}) + ' | ';
+                            if(pEl) r += setInput(pEl, {json.dumps(creds['password'])});
+                            return r || 'ERROR: no login fields found';
+                        """,
+                        "reason": f"autofill credentials for {domain}",
+                    })
+                    result = await self._wait_for_action_result(action_id, timeout=5.0)
+                    result_str = result.get("result", "ok") if result else "sent"
+                else:
+                    result_str = f"no saved credentials for {domain}"
+                history.append({"action": "autofill", "reason": reason, "result": result_str})
                 continue
 
             if action == "wait":

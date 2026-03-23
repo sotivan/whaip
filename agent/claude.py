@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger("whaip.claude")
 
-WHP_ACTIONS = {"scroll", "navigate", "wait", "js", "script", "done", "speak", "ask", "set_voice"}
+WHP_ACTIONS = {"scroll", "navigate", "wait", "js", "script", "done", "speak", "ask", "set_voice", "autofill"}
 # "click" intentionally removed — use js + clickEl()/clickWC() instead
 # "script" = multi-step plan executed entirely in the browser without API round-trips
 
@@ -132,6 +132,19 @@ NEVER navigate to the same URL twice. If it fails → completely different appro
 ══ COOKIES & ADS ════════════════════════════════════════════════════════════════════
 
 Cookie banners and YouTube ads are auto-dismissed. Never spend a step on them.
+
+══ BROWSER MEMORY ══════════════════════════════════════════════════════════════
+
+The user profile includes:
+  - "Sitios frecuentes": top visited sites. Navigate there DIRECTLY — no need to Google them.
+  - "Marcadores guardados": bookmarked pages. Navigate to them directly.
+  - "Credenciales guardadas para": domains with saved passwords.
+    When you reach a login page for one of those domains → use action="autofill":
+    {"action":"autofill","domain":"netflix.com","reason":"fill login form"}
+    This fills the form WITHOUT sending credentials to the API.
+
+autofill format:
+{"action":"autofill","domain":"<domain>","reason":"..."}
 
 ══ CONVERSATIONAL ACTIONS ═══════════════════════════════════════════════════════════
 

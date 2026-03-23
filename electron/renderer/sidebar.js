@@ -215,6 +215,23 @@ window.whaip.onAgentMessage(data => {
   }
 })
 
+// ── Bookmark button ───────────────────────────────────────────────────────────
+
+const btnBookmark = document.getElementById('btn-bookmark')
+if (btnBookmark) {
+    btnBookmark.addEventListener('click', () => {
+        window.whaip.sendToAgent({ type: 'bookmark:get_current' })
+    })
+}
+
+// Cmd+D / Ctrl+D to bookmark
+document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+        e.preventDefault()
+        window.whaip.sendToAgent({ type: 'bookmark:get_current' })
+    }
+})
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 ;(function init() {

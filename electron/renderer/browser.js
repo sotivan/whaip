@@ -139,6 +139,23 @@ function startAutoClean(url) {
   } else {
     _adInterval = null
   }
+
+  // Detect login forms and offer autofill if we have credentials
+  setTimeout(() => {
+    webview.executeJavaScript(`
+        const hasPwd = !!document.querySelector('input[type="password"]');
+        const hasUser = !!document.querySelector('input[type="email"],input[type="text"][name*="user" i],input[name*="email" i]');
+        if (hasPwd && hasUser) {
+            const m = location.href.match(/https?:\\/\\/([^/?#]+)/);
+            const domain = m ? m[1].replace(/^www\\./, '') : '';
+            domain;
+        } else { ''; }
+    `).then(domain => {
+        if (domain) {
+            window.whaip.sendToAgent({ type: 'autofill:request', domain })
+        }
+    }).catch(() => {})
+  }, 1500)
 }
 
 webview.addEventListener('did-stop-loading', () => {
@@ -610,10 +627,70 @@ window.whaip.onAgentMessage(async data => {
     }
     return
   }
+  if (data.type === 'bookmark:get_current') {
+    window.whaip.sendToAgent({
+        type:  'bookmark:save',
+        url:   webview.getURL?.() || webview.src,
+        title: webview.getTitle?.() || document.title || '',
+        tags:  '',
+    })
+    return
+  }
+  if (data.type === 'password:get_domain') {
+    // Get domain and ask user for credentials via a small inline form
+    const url = webview.getURL?.() || webview.src
+    const m = url.match(/https?:\/\/([^/?#]+)/)
+    const domain = m ? m[1].replace(/^www\./, '') : ''
+    if (domain) {
+        showPasswordSavePrompt(domain)
+    }
+    return
+  }
+  if (data.type === 'autofill:fill') {
+    // Fill login form with credentials received from agent
+    webview.executeJavaScript(buildJS(`
+        const u = document.querySelector('input[type="email"],input[type="text"][name*="user" i],input[name*="email" i],input[id*="user" i],input[id*="email" i]');
+        const p = document.querySelector('input[type="password"]');
+        if(u) setInput(u, ${JSON.stringify(data.username)});
+        if(p) setInput(p, ${JSON.stringify(data.password)});
+        return (u||p) ? 'autofilled' : 'fields not found';
+    `)).catch(() => {})
+    return
+  }
   if (data.type === 'action' && data.action) {
     executeAction(data)
   }
 })
+
+// ── Password save prompt ──────────────────────────────────────────────────────
+
+function showPasswordSavePrompt(domain) {
+    const existing = document.getElementById('whaip-pwd-prompt')
+    if (existing) existing.remove()
+    const div = document.createElement('div')
+    div.id = 'whaip-pwd-prompt'
+    div.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:9999;background:#1a1a1e;border:1px solid #7c3aed;border-radius:8px;padding:16px;width:280px;color:#e4e4e7;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,0.5)'
+    div.innerHTML = `
+        <div style="font-weight:600;margin-bottom:8px">🔐 Guardar contraseña para <b>${domain}</b></div>
+        <input id="whaip-pwd-user" placeholder="Usuario o email" style="width:100%;background:#0e0e10;border:1px solid #2e2e34;border-radius:6px;color:#e4e4e7;padding:6px 8px;margin-bottom:6px;font-size:12px;box-sizing:border-box">
+        <input id="whaip-pwd-pass" type="password" placeholder="Contraseña" style="width:100%;background:#0e0e10;border:1px solid #2e2e34;border-radius:6px;color:#e4e4e7;padding:6px 8px;margin-bottom:10px;font-size:12px;box-sizing:border-box">
+        <div style="display:flex;gap:6px">
+            <button id="whaip-pwd-save" style="flex:1;background:#7c3aed;border:none;border-radius:6px;color:#fff;padding:7px;cursor:pointer;font-size:12px">Guardar</button>
+            <button id="whaip-pwd-cancel" style="flex:1;background:transparent;border:1px solid #2e2e34;border-radius:6px;color:#71717a;padding:7px;cursor:pointer;font-size:12px">Cancelar</button>
+        </div>
+    `
+    document.body.appendChild(div)
+    div.querySelector('#whaip-pwd-save').onclick = () => {
+        const username = div.querySelector('#whaip-pwd-user').value.trim()
+        const password = div.querySelector('#whaip-pwd-pass').value
+        if (username && password) {
+            window.whaip.sendToAgent({ type: 'password:save', domain, username, password })
+        }
+        div.remove()
+    }
+    div.querySelector('#whaip-pwd-cancel').onclick = () => div.remove()
+    div.querySelector('#whaip-pwd-user').focus()
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
