@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WHAIP – Setup</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0c0c0f;
+      --surface:  #16161a;
+      --border:   #2a2a30;
+      --accent:   #7c3aed;
+      --accent-h: #9d5ff5;
+      --green:    #22c55e;
+      --text:     #e4e4e7;
+      --muted:    #71717a;
+      --red:      #ef4444;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* drag region at top */
+    .drag-region {
+      -webkit-app-region: drag;
+      height: 28px;
+      background: var(--bg);
+      flex-shrink: 0;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: calc(100% - 28px);
+      overflow-y: auto;
+      padding: 0 40px 32px;
+    }
+
+    /* ── Hero ────────────────────────────────────────────────────────── */
+    .hero {
+      text-align: center;
+      padding: 28px 0 24px;
+    }
+
+    .hero-logo {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #a78bfa, #7c3aed, #4f46e5);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-tagline {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 6px;
+    }
+
+    /* ── Progress bar ────────────────────────────────────────────────── */
+    .progress-wrap {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin-bottom: 28px;
+    }
+
+    .progress-step {
+      height: 3px;
+      width: 48px;
+      border-radius: 99px;
+      background: var(--border);
+      transition: background 0.3s;
+    }
+
+    .progress-step.active  { background: var(--accent); }
+    .progress-step.done    { background: var(--green); }
+
+    /* ── Sections ────────────────────────────────────────────────────── */
+    .section {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      animation: fadeIn 0.25s ease;
+    }
+
+    .section.visible { display: flex; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .section-sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-top: -8px;
+    }
+
+    /* ── Field group ─────────────────────────────────────────────────── */
+    .field-group {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .field-group-label {
+      padding: 10px 16px 0;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 10px 16px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .field:last-child { border-bottom: none; }
+
+    .field-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .field-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .field-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 99px;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-required { background: #3b1f6e; color: #c4b5fd; }
+    .badge-optional { background: #1a2a1a; color: #4ade80; }
+
+    .field-hint {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .field-hint a {
+      color: #a78bfa;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="url"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      padding: 8px 12px;
+      outline: none;
+      width: 100%;
+      transition: border-color 0.15s;
+      margin-top: 2px;
+    }
+
+    input:focus  { border-color: var(--accent); }
+    input.filled { border-color: #2d4d2d; }
+
+    /* ── Feature pills ───────────────────────────────────────────────── */
+    .unlocks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .unlock-pill {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 99px;
+      background: #1e1e28;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+    }
+
+    .unlock-pill.active {
+      background: #1d1a3a;
+      border-color: #4f46e5;
+      color: #a78bfa;
+    }
+
+    .unlock-pill .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border);
+    }
+
+    .unlock-pill.active .dot { background: #7c3aed; }
+
+    /* ── Skip info ───────────────────────────────────────────────────── */
+    .skip-info {
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ── Nav buttons ─────────────────────────────────────────────────── */
+    .nav {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover { color: var(--text); border-color: #444; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover   { background: var(--accent-h); }
+    .btn-primary:active  { transform: scale(0.98); }
+
+    .btn-launch {
+      background: linear-gradient(135deg, #7c3aed, #4f46e5);
+      color: #fff;
+      font-size: 15px;
+    }
+
+    .btn-launch:hover { filter: brightness(1.1); }
+
+    /* ── Summary ─────────────────────────────────────────────────────── */
+    .summary-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    .summary-label { font-size: 13px; font-weight: 500; }
+
+    .summary-status {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 99px;
+    }
+
+    .status-on  { background: #1a2e1a; color: var(--green); }
+    .status-off { background: #1e1e1e; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="drag-region"></div>
+
+  <div class="container">
+    <!-- Hero -->
+    <div class="hero">
+      <div class="hero-logo">WHAIP</div>
+      <div class="hero-tagline">Your browser. Your agent. Your internet.</div>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-wrap">
+      <div class="progress-step active"  id="step-dot-0"></div>
+      <div class="progress-step"         id="step-dot-1"></div>
+      <div class="progress-step"         id="step-dot-2"></div>
+      <div class="progress-step"         id="step-dot-3"></div>
+    </div>
+
+    <!-- ── Step 0: Bienvenida ── -->
+    <div class="section visible" id="step-0">
+      <div class="section-title">Bienvenido a WHAIP</div>
+      <p class="section-sub">
+        En 3 pasos configuras tu agente. Puedes saltarte cualquier sección
+        y volver más tarde editando <code>whaip.config.yaml</code>.
+      </p>
+
+      <div class="field-group">
+        <div class="field-group-label">¿Qué va a hacer WHAIP?</div>
+        <div class="field" style="gap:8px;">
+          <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+            <span style="font-size:20px;">🎤</span>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Escucha tu voz</div>
+              <div style="font-size:12px;color:var(--muted);">Whisper corre local, sin enviar audio a ningún servidor</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+            <span style="font-size:20px;">👁️</span>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Ve la pantalla</div>
+              <div style="font-size:12px;color:var(--muted);">Claude Vision analiza el navegador y decide qué hacer</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+            <span style="font-size:20px;">🤙</span>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Detecta tu mano</div>
+              <div style="font-size:12px;color:var(--muted);">Señala con el dedo y el agente hace clic donde indicas</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+            <span style="font-size:20px;">🔊</span>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Responde por voz</div>
+              <div style="font-size:12px;color:var(--muted);">ElevenLabs genera una voz natural para el agente (opcional)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="skip-info">
+        Tus API keys se guardan solo en tu máquina.<br/>
+        WHAIP no tiene servidor propio. Sin suscripción. Sin tracking.
+      </p>
+
+      <div class="nav">
+        <button class="btn btn-primary" onclick="goStep(1)">Configurar →</button>
+      </div>
+    </div>
+
+    <!-- ── Step 1: Core AI ── -->
+    <div class="section" id="step-1">
+      <div class="section-title">Cerebro del agente</div>
+      <p class="section-sub">
+        Claude ve la pantalla y decide qué hacer. Sin esta key el agente no funciona.
+      </p>
+
+      <div class="field-group">
+        <div class="field-group-label">Anthropic</div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">anthropic_api_key</span>
+            <span class="field-badge badge-required">Requerida</span>
+          </div>
+          <div class="field-hint">
+            Consíguela en <a onclick="openExt('https://console.anthropic.com/settings/keys')">console.anthropic.com</a>
+          </div>
+          <input type="password" id="anthropic_api_key" placeholder="sk-ant-api03-…"
+                 oninput="onFieldInput(this)" />
+        </div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-group-label">OpenAI (opcional)</div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">openai_api_key</span>
+            <span class="field-badge badge-optional">Opcional</span>
+          </div>
+          <div class="field-hint">
+            Solo necesario para Whisper en modo API. El modo local no requiere key.
+          </div>
+          <input type="password" id="openai_api_key" placeholder="sk-…"
+                 oninput="onFieldInput(this)" />
+        </div>
+      </div>
+
+      <div class="nav">
+        <button class="btn btn-secondary" onclick="goStep(0)">← Atrás</button>
+        <button class="btn btn-primary"   onclick="goStep(2)">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- ── Step 2: Voz y extras ── -->
+    <div class="section" id="step-2">
+      <div class="section-title">Voz y servicios extra</div>
+      <p class="section-sub">
+        Con ElevenLabs el agente te responde con voz. Todo lo demás es opcional.
+      </p>
+
+      <div class="field-group">
+        <div class="field-group-label">ElevenLabs — voz del agente</div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">elevenlabs_api_key</span>
+            <span class="field-badge badge-optional">Opcional</span>
+          </div>
+          <div class="field-hint">
+            <a onclick="openExt('https://elevenlabs.io/app/settings/api-keys')">elevenlabs.io</a>
+            → My Account → API Keys
+          </div>
+          <input type="password" id="elevenlabs_api_key" placeholder="sk_…"
+                 oninput="onFieldInput(this); updatePills()" />
+        </div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">elevenlabs_voice_id</span>
+            <span class="field-badge badge-optional">Opcional</span>
+          </div>
+          <div class="field-hint">
+            ID de la voz a usar. Encuéntralo en la URL al abrir una voz en ElevenLabs.
+          </div>
+          <input type="text" id="elevenlabs_voice_id" placeholder="21m00Tcm4TlvDq8ikWAM"
+                 oninput="onFieldInput(this)" />
+        </div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-group-label">Supabase — sync remoto (opcional)</div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">supabase_url</span>
+            <span class="field-badge badge-optional">Opcional</span>
+          </div>
+          <input type="url" id="supabase_url" placeholder="https://xxxx.supabase.co"
+                 oninput="onFieldInput(this)" />
+        </div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">supabase_key</span>
+            <span class="field-badge badge-optional">Opcional</span>
+          </div>
+          <input type="password" id="supabase_key" placeholder="eyJhbGci…"
+                 oninput="onFieldInput(this)" />
+        </div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-group-label">Google OAuth (opcional)</div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">google_client_id</span>
+            <span class="field-badge badge-optional">Opcional</span>
+          </div>
+          <div class="field-hint">Gmail, Google Calendar, Drive</div>
+          <input type="text" id="google_client_id" placeholder="xxxx.apps.googleusercontent.com"
+                 oninput="onFieldInput(this)" />
+        </div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">google_client_secret</span>
+            <span class="field-badge badge-optional">Opcional</span>
+          </div>
+          <input type="password" id="google_client_secret" placeholder="GOCSPX-…"
+                 oninput="onFieldInput(this)" />
+        </div>
+      </div>
+
+      <div class="nav">
+        <button class="btn btn-secondary" onclick="goStep(1)">← Atrás</button>
+        <button class="btn btn-primary"   onclick="goStep(3)">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- ── Step 3: Resumen + Launch ── -->
+    <div class="section" id="step-3">
+      <div class="section-title">Todo listo</div>
+      <p class="section-sub">Resumen de lo que has activado:</p>
+
+      <div class="summary-list" id="summary-list"></div>
+
+      <p class="skip-info" style="margin-top:4px;">
+        Puedes cambiar cualquier key en cualquier momento<br/>editando <code>whaip.config.yaml</code>
+      </p>
+
+      <div class="nav" style="margin-top:12px;">
+        <button class="btn btn-secondary" onclick="goStep(2)">← Atrás</button>
+        <button class="btn btn-launch"    onclick="launch()">Lanzar WHAIP 🚀</button>
+      </div>
+    </div>
+
+  </div><!-- /container -->
+
+  <script src="onboarding.js"></script>
+</body>
+</html>

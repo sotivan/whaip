@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>WHAIP</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ── Top bar ──────────────────────────────────────────────────── -->
+  <header id="topbar">
+    <div id="nav-controls">
+      <button id="btn-back"    title="Back">&#8592;</button>
+      <button id="btn-forward" title="Forward">&#8594;</button>
+      <button id="btn-reload"  title="Reload">&#8635;</button>
+    </div>
+
+    <div id="address-bar-wrap">
+      <input id="address-bar" type="url" placeholder="Search or enter address…" />
+    </div>
+
+    <div id="topbar-actions">
+      <button id="btn-sidebar-toggle" title="Toggle AI sidebar">AI</button>
+    </div>
+  </header>
+
+  <!-- ── Main layout ──────────────────────────────────────────────── -->
+  <main id="layout">
+    <!-- Embedded browser -->
+    <section id="browser-pane">
+      <webview id="webview"
+               src="https://www.google.com"
+               allowpopups
+               webpreferences="contextIsolation=yes"></webview>
+
+      <!-- Hand cursor overlay -->
+      <canvas id="hand-overlay"></canvas>
+    </section>
+
+    <!-- AI sidebar -->
+    <aside id="sidebar" class="sidebar-hidden">
+      <div id="sidebar-header">
+        <span>WHAIP Agent</span>
+        <button id="btn-sidebar-close">&#x2715;</button>
+      </div>
+
+      <div id="agent-status">
+        <span id="status-indicator" class="status-idle"></span>
+        <span id="status-label">Idle</span>
+      </div>
+
+      <div style="padding:6px 16px 0;font-size:11px;">
+        <span id="agent-conn-badge" style="color:#71717a;">○ Agente desconectado</span>
+      </div>
+
+      <div id="transcript-feed"></div>
+
+      <div id="sidebar-footer">
+        <button id="btn-mic-toggle">&#127908; Listen</button>
+      </div>
+    </aside>
+  </main>
+
+  <script src="browser.js"></script>
+  <script src="sidebar.js"></script>
+</body>
+</html>

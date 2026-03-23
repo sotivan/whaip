@@ -1,0 +1,35 @@
+# WHAIP Configuration
+# Leave any key empty ("") to silently disable that module.
+
+# --- AI ---
+anthropic_api_key: ""
+openai_api_key: ""         # used by Whisper (local model does not require this)
+
+# --- Voice synthesis ---
+elevenlabs_api_key: ""
+elevenlabs_voice_id: ""    # e.g. "21m00Tcm4TlvDq8ikWAM"
+
+# --- Remote sync ---
+supabase_url: ""           # e.g. "https://xxxx.supabase.co"
+supabase_key: ""           # anon/service-role key
+
+# --- Google OAuth ---
+google_client_id: ""
+google_client_secret: ""
+
+# --- Agent tuning ---
+agent:
+  whisper_model: "base"    # tiny | base | small | medium | large
+  screenshot_quality: 80   # JPEG quality 1-100
+  loop_interval_ms: 500    # ms between agent loop ticks
+  language: "es"           # default speech recognition language
+
+# --- WebSocket bridge ---
+ws:
+  host: "127.0.0.1"
+  port: 8765
+
+# --- Browser defaults ---
+browser:
+  home_url: "https://www.google.com"
+  user_agent: ""           # leave empty to use Chromium default
