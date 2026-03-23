@@ -117,11 +117,18 @@ const YOUTUBE_AD_JS = `
 
 let _adInterval = null
 
+function runCookieDismiss() {
+  // 1. Try in main frame (fast)
+  webview.executeJavaScript(COOKIE_JS).catch(() => {})
+  // 2. Try in ALL frames via main process (catches cross-origin iframes like OneTrust, CookieBot)
+  window.whaip.dismissCookies().catch(() => {})
+}
+
 function startAutoClean(url) {
   // Cookies: fire at 1s, 3s and 6s after load (some CMPs load late)
-  setTimeout(() => webview.executeJavaScript(COOKIE_JS).catch(() => {}), 1000)
-  setTimeout(() => webview.executeJavaScript(COOKIE_JS).catch(() => {}), 3000)
-  setTimeout(() => webview.executeJavaScript(COOKIE_JS).catch(() => {}), 6000)
+  setTimeout(runCookieDismiss, 1000)
+  setTimeout(runCookieDismiss, 3000)
+  setTimeout(runCookieDismiss, 6000)
 
   // YouTube ads: poll every 2s
   if (_adInterval) clearInterval(_adInterval)

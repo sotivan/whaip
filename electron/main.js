@@ -2,7 +2,7 @@
  * WHAIP – Electron main process
  */
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, webContents } = require('electron')
 const path  = require('path')
 const fs    = require('fs')
 const { spawn } = require('child_process')
@@ -229,6 +229,24 @@ function registerIpcHandlers() {
 
   // Open external link in system browser
   ipcMain.on('open:external', (_event, url) => shell.openExternal(url))
+
+  // Dismiss cookie banners in ALL frames (including cross-origin iframes)
+  ipcMain.handle('webview:dismiss-cookies', async () => {
+    const dismissJS = `(function(){
+      const re = /aceptar|accept all|allow all|acepto|i agree|permitir|alle akzept|concordo/i;
+      const btn = [...document.querySelectorAll('button,[role="button"],a')].find(b => re.test(b.innerText));
+      if (btn) { btn.click(); return 'clicked: ' + btn.innerText.slice(0,30); }
+      return null;
+    })()`
+    const results = []
+    for (const wc of webContents.getAllWebContents()) {
+      try {
+        const r = await wc.executeJavaScript(dismissJS)
+        if (r) results.push(r)
+      } catch (e) { /* cross-origin frames may throw — ignore */ }
+    }
+    return results
+  })
 }
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────

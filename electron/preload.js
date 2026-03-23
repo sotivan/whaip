@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('whaip', {
   offAgentMessage:    ()         => ipcRenderer.removeAllListeners('whp:message'),
   offAgentStatus:     ()         => ipcRenderer.removeAllListeners('whp:status'),
 
+  // ── Cookie dismissal (all frames including cross-origin iframes) ───────
+  dismissCookies: () => ipcRenderer.invoke('webview:dismiss-cookies'),
+
   // ── Utilities ──────────────────────────────────────────────────────────
   openExternal: (url) => ipcRenderer.send('open:external', url),
 })
