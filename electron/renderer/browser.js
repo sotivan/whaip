@@ -154,7 +154,7 @@ async function executeAction(cmd) {
     case 'click':     return handleClick(cmd.x, cmd.y, cmd.text)
     case 'type':      return handleType(cmd.text)
     case 'scroll':    return handleScroll(cmd.direction)
-    case 'navigate':  return handleNavigate(cmd.text)
+    case 'navigate':  return handleNavigate(cmd.text, cmd._id)
     case 'js':        return handleJS(cmd.code, cmd._id)
     case 'wait':      return
     case 'done':      return window.dispatchEvent(new CustomEvent('whaip:done', { detail: cmd }))
@@ -354,10 +354,42 @@ function handleScroll(direction) {
   ).catch(console.error)
 }
 
-function handleNavigate(url) {
+// Track the action_id of the in-flight navigate so we can report success/failure
+let _pendingNavId = null
+
+function handleNavigate(url, actionId) {
+  _pendingNavId = actionId || null
   webview.src = normalizeUrl(url)
   addressBar.value = webview.src
 }
+
+// Report navigate result when page finishes loading or fails
+webview.addEventListener('did-finish-load', () => {
+  if (_pendingNavId) {
+    window.whaip.sendToAgent({
+      type:      'action:result',
+      action_id: _pendingNavId,
+      ok:        true,
+      result:    'página cargada',
+      url:       webview.src,
+    })
+    _pendingNavId = null
+  }
+})
+
+webview.addEventListener('did-fail-load', e => {
+  if (_pendingNavId && e.errorCode !== -3 /* ERR_ABORTED can be a redirect, ignore */) {
+    window.whaip.sendToAgent({
+      type:      'action:result',
+      action_id: _pendingNavId,
+      ok:        false,
+      error:     `${e.errorDescription} (${e.errorCode}) — ${e.validatedURL}`,
+      url:       webview.src,
+    })
+    _pendingNavId = null
+  }
+  // ERR_ABORTED (-3) usually means a redirect mid-load; did-finish-load fires after
+})
 
 // ── Screenshot responder ──────────────────────────────────────────────────────
 

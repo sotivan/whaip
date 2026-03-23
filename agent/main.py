@@ -142,24 +142,18 @@ class AgentLoop:
                     data.get("error", data.get("result", "")),
                 )
 
-    # ── Page load wait ────────────────────────────────────────────────────
+    # ── Wait for a specific action result ────────────────────────────────
 
-    async def _wait_for_page_load(self, timeout: float = 10.0, poll: float = 0.5) -> None:
-        """Poll DOM readyState until 'complete' or timeout. Real logic, no fixed sleep."""
+    async def _wait_for_action_result(self, action_id: str, timeout: float = 12.0) -> Optional[dict]:
+        """Wait until action_id appears in _action_results or timeout."""
         import time
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            snap_raw = await self.request_dom_snapshot(timeout=2.0)
-            if snap_raw:
-                try:
-                    import json as _json
-                    snap = _json.loads(snap_raw)
-                    if snap.get("readyState") == "complete":
-                        return
-                except Exception:
-                    return
-            await asyncio.sleep(poll)
-        logger.debug("_wait_for_page_load: timeout after %.1fs", timeout)
+            if action_id in self._action_results:
+                return self._action_results[action_id]
+            await asyncio.sleep(0.2)
+        logger.debug("_wait_for_action_result: timeout for %s", action_id)
+        return None
 
     # ── DOM snapshot request ───────────────────────────────────────────────
 
@@ -381,12 +375,14 @@ class AgentLoop:
             cmd["_id"] = action_id
 
             await self.broadcast({"type": "action", **cmd})
-            await asyncio.sleep(STEP_DELAY)
 
-            # After navigate: wait for page to actually finish loading (readyState=complete)
-            # instead of a hardcoded delay — fast pages proceed immediately, slow pages wait
+            # For navigate: wait for did-finish-load result (up to 12s), then short settle
+            # For everything else: fixed step delay
             if action == "navigate":
-                await self._wait_for_page_load(timeout=10.0)
+                await self._wait_for_action_result(action_id, timeout=12.0)
+                await asyncio.sleep(0.5)   # brief settle after page load
+            else:
+                await asyncio.sleep(STEP_DELAY)
 
             result = self._action_results.pop(action_id, None)
             result_str = ""
