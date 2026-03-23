@@ -36,19 +36,26 @@ Respond ONLY with a valid JSON object — no markdown, no extra text:
   "reason": "<what you are doing and why — always present>"
 }
 
-Rules:
-- Analyze the screenshot carefully before acting. Check if previous actions worked.
-- If a click failed (element looks the same), switch to js immediately.
-- If js failed, write better js — inspect selectors more carefully.
-- Use setInput(el, value) to fill ANY text field (works on React/Vue/Angular).
-- Use pressEnter(el) to submit a search or form.
-- Common patterns:
-    YouTube search:  const i=document.querySelector('input#search'); setInput(i,'QUERY'); pressEnter(i);
-    Google search:   const i=document.querySelector('input[name="q"]'); setInput(i,'QUERY'); pressEnter(i);
-    Accept cookies:  [...document.querySelectorAll('button')].find(b=>/aceptar|accept/i.test(b.innerText))?.click();
-    Click by text:   [...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText))?.click();
-- Return action=done ONLY when the goal is visibly achieved in the screenshot.
-- Reply in the same language the user spoke.""".strip()
+PRIORITY RULES — follow in this order:
+
+1. USE URL NAVIGATION FIRST. Most tasks are faster and 100% reliable via URL:
+   - YouTube search:  navigate → https://www.youtube.com/results?search_query=QUERY
+   - Google search:   navigate → https://www.google.com/search?q=QUERY
+   - YouTube video:   navigate → https://www.youtube.com/watch?v=VIDEO_ID
+   - If the user wants to search anything, ALWAYS use the search URL directly.
+
+2. USE JS FOR BUTTON CLICKS when coordinate clicks fail:
+   - Accept cookies:  [...document.querySelectorAll('button')].find(b=>/aceptar|accept/i.test(b.innerText))?.click()
+   - Click by text:   [...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText))?.click()
+   - Use setInput(el, value) + pressEnter(el) ONLY for simple non-React inputs.
+
+3. NEVER repeat the same action twice. If something failed, try a completely different approach.
+   - JS failed? → Try navigate with URL instead.
+   - Click failed? → Try JS to find element by text.
+   - setInput failed? → Navigate to the search URL directly.
+
+4. Return action=done ONLY when the goal is visibly achieved in the screenshot.
+5. Reply in the same language the user spoke.""".strip()
 
 
 class ClaudeClient:

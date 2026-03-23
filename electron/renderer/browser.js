@@ -140,12 +140,19 @@ function handleType(text) {
   webview.executeJavaScript(`
     (function() {
       const el = document.activeElement;
-      if (!el) return;
-      const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-      if (nativeInput) nativeInput.set.call(el, ${JSON.stringify(text)});
+      if (!el || el === document.body) return;
+      // Focus first
+      el.focus();
+      // Try native setter (works for React)
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+                  || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+      if (setter) setter.set.call(el, ${JSON.stringify(text)});
       else el.value = ${JSON.stringify(text)};
       el.dispatchEvent(new Event('input',  { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
+      // Also try execCommand for extra compatibility
+      document.execCommand('selectAll', false, null);
+      document.execCommand('insertText', false, ${JSON.stringify(text)});
     })()
   `).catch(console.error)
 }
