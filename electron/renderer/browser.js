@@ -70,10 +70,19 @@ async function executeAction(cmd) {
     case 'type':      return handleType(cmd.text)
     case 'scroll':    return handleScroll(cmd.direction)
     case 'navigate':  return handleNavigate(cmd.text)
-    case 'wait':      return   // agent loop handles timing
+    case 'js':        return handleJS(cmd.code)
+    case 'wait':      return
     case 'done':      return window.dispatchEvent(new CustomEvent('whaip:done', { detail: cmd }))
     default: console.warn('[browser] unknown action:', cmd.action)
   }
+}
+
+function handleJS(code) {
+  if (!code) return
+  console.log('[whaip] executing JS:', code.slice(0, 120))
+  webview.executeJavaScript(code).catch(err => {
+    console.error('[whaip] JS execution error:', err.message)
+  })
 }
 
 function handleClick(x, y, buttonText) {
