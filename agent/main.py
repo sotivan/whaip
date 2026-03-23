@@ -1,14 +1,17 @@
 """
 WHAIP – Python agent entry point
 
-Boots all subsystems and runs the main WHP loop.
-
 Flow:
-  Electron spawns this process on startup.
-  We open a WebSocket server on ws://127.0.0.1:8765
-  Electron connects and sends/receives WHP JSON messages.
-  VoiceListener transcribes speech → we forward it to Electron.
-  (Claude vision + action execution wired in next iterations)
+  Electron spawns this process.
+  We open a WebSocket server on ws://127.0.0.1:8765.
+  Electron connects → sends screenshots + receives WHP actions.
+
+  Loop:
+    1. VoiceListener transcribes speech
+    2. Request screenshot from Electron
+    3. Send (voice + screenshot) to Claude
+    4. Broadcast WHP action back to Electron for execution
+    5. Speak response via ElevenLabs (if configured)
 """
 
 import asyncio
@@ -22,23 +25,20 @@ import yaml
 import websockets
 from websockets.server import WebSocketServerProtocol
 
-from voice import VoiceListener
+from voice  import VoiceListener
+from claude import ClaudeClient
 
 logger = logging.getLogger("whaip.main")
 
 # ─── Config ────────────────────────────────────────────────────────────────
 
 def load_config(path: str = "whaip.config.yaml") -> dict:
-    """Load whaip.config.yaml. Missing file or keys return safe defaults."""
     cfg_path = Path(path)
     if not cfg_path.exists():
-        # Try one level up (when running from agent/ subdir)
         cfg_path = Path(__file__).parent.parent / "whaip.config.yaml"
-
     if not cfg_path.exists():
         logger.warning("whaip.config.yaml not found – using empty config.")
         return {}
-
     try:
         with open(cfg_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
@@ -49,21 +49,22 @@ def load_config(path: str = "whaip.config.yaml") -> dict:
 # ─── Agent loop ────────────────────────────────────────────────────────────
 
 class AgentLoop:
-    """
-    Orchestrates: voice → (vision + Claude → action) → ElevenLabs.
-    WebSocket connections from Electron are registered here.
-    """
 
     def __init__(self, config: dict):
         self.config  = config
         self.running = False
         self._clients: set[WebSocketServerProtocol] = set()
 
-        # Subsystems — each disables itself silently if its key is missing
-        self.voice = VoiceListener(config)
+        # pending screenshot response from Electron
+        self._screenshot_event  = asyncio.Event()
+        self._pending_screenshot: Optional[str] = None
+
+        self.voice  = VoiceListener(config)
+        self.claude = ClaudeClient(config)
 
     async def setup(self) -> None:
         await self.voice.setup()
+        self.claude.setup()
 
     async def teardown(self) -> None:
         await self.voice.teardown()
@@ -79,7 +80,6 @@ class AgentLoop:
         logger.info("Electron disconnected (%d clients)", len(self._clients))
 
     async def broadcast(self, payload: dict) -> None:
-        """Send a WHP JSON payload to all connected Electron windows."""
         if not self._clients:
             return
         message = json.dumps(payload, ensure_ascii=False)
@@ -93,48 +93,73 @@ class AgentLoop:
             self._clients.discard(ws)
 
     async def handle_incoming(self, message: str) -> None:
-        """Handle a WHP message sent by Electron."""
         try:
             data = json.loads(message)
         except json.JSONDecodeError:
-            logger.warning("Bad JSON from Electron: %s", message[:120])
             return
 
         msg_type = data.get("type", "")
-        logger.debug("← Electron: %s", msg_type)
 
-        # Screenshot response (Electron sends this after we request it)
         if msg_type == "screenshot:response":
             self._pending_screenshot = data.get("data")
+            self._screenshot_event.set()
 
-        # Electron acknowledged an action
         elif msg_type == "action:done":
             logger.info("Action done: %s", data.get("action"))
+
+    # ── Screenshot request ─────────────────────────────────────────────────
+
+    async def request_screenshot(self, timeout: float = 3.0) -> Optional[str]:
+        """Ask Electron for a screenshot; returns base64 JPEG or None."""
+        if not self._clients:
+            return None
+        self._pending_screenshot = None
+        self._screenshot_event.clear()
+        await self.broadcast({"type": "screenshot:request"})
+        try:
+            await asyncio.wait_for(self._screenshot_event.wait(), timeout=timeout)
+            return self._pending_screenshot
+        except asyncio.TimeoutError:
+            logger.warning("Screenshot request timed out.")
+            return None
 
     # ── Main tick ─────────────────────────────────────────────────────────
 
     async def tick(self) -> None:
-        """
-        Single agent cycle.
-        Currently: forward voice transcriptions to Electron for display.
-        Claude vision + action execution will plug in here next.
-        """
-        if not self.voice.enabled:
-            return
-
+        # 1. Get latest voice transcription (non-blocking)
         text = await self.voice.get_latest()
         if not text:
             return
 
-        logger.info("Voice → Electron: %s", text)
-        await self.broadcast({
-            "type": "transcript",
-            "role": "user",
-            "text": text,
-        })
+        logger.info("Voice: %s", text)
+
+        # Show in sidebar immediately
+        await self.broadcast({"type": "transcript", "role": "user", "text": text})
+        await self.broadcast({"type": "status", "state": "thinking"})
+
+        # 2. Get screenshot from Electron
+        screenshot = await self.request_screenshot()
+
+        # 3. Ask Claude what to do
+        cmd = await self.claude.decide(
+            voice_text=text,
+            hand_pos=None,       # MediaPipe wired in next iteration
+            screenshot_b64=screenshot,
+            memory=None,         # Memory wired in next iteration
+        )
+
+        logger.info("Action: %s – %s", cmd.get("action"), cmd.get("reason"))
+
+        # 4. Show reason in sidebar
+        reason = cmd.get("reason", "")
+        if reason:
+            await self.broadcast({"type": "transcript", "role": "agent", "text": reason})
+
+        # 5. Send action to Electron for execution
+        await self.broadcast({"type": "action", **cmd})
+        await self.broadcast({"type": "status", "state": "idle"})
 
     async def run(self) -> None:
-        """Main loop."""
         self.running = True
         interval = self.config.get("agent", {}).get("loop_interval_ms", 200) / 1000
         while self.running:
@@ -149,11 +174,7 @@ class AgentLoop:
 
 # ─── WebSocket server ──────────────────────────────────────────────────────
 
-async def ws_handler(
-    websocket: WebSocketServerProtocol,
-    agent: AgentLoop,
-) -> None:
-    """Handle one Electron WebSocket connection."""
+async def ws_handler(websocket: WebSocketServerProtocol, agent: AgentLoop) -> None:
     agent.register_client(websocket)
     try:
         async for message in websocket:
@@ -165,15 +186,14 @@ async def ws_handler(
 
 
 async def start_ws_server(config: dict, agent: AgentLoop) -> None:
-    """Start the WHP WebSocket server and run until cancelled."""
     host = config.get("ws", {}).get("host", "127.0.0.1")
     port = config.get("ws", {}).get("port", 8765)
 
     handler = lambda ws, _path=None: ws_handler(ws, agent)
 
     async with websockets.serve(handler, host, port):
-        logger.info("WHP WebSocket server listening on ws://%s:%d", host, port)
-        await asyncio.Future()   # run forever
+        logger.info("WHP server on ws://%s:%d", host, port)
+        await asyncio.Future()
 
 # ─── Entry point ───────────────────────────────────────────────────────────
 
@@ -186,7 +206,6 @@ async def main() -> None:
 
     config = load_config()
     agent  = AgentLoop(config)
-
     await agent.setup()
 
     try:

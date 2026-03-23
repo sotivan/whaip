@@ -1,35 +1,46 @@
 """
 WHAIP – Claude API client
+
 Sends multimodal context (screenshot + voice + hand position) to Claude
-and parses the WHP action JSON response.
+and returns a WHP action JSON.
 Disabled silently if anthropic_api_key is empty.
 """
 
+import json
 import logging
+import re
 from typing import Optional, Tuple
 
 logger = logging.getLogger("whaip.claude")
 
-# WHP response schema (reference)
 WHP_ACTIONS = {"click", "type", "scroll", "navigate", "wait", "done"}
 
-SYSTEM_PROMPT = """
-You are WHAIP, an AI agent that controls a web browser on behalf of the user.
-You receive:
-  - A screenshot of the current browser viewport (base64 JPEG).
-  - The user's last voice command (may be empty).
-  - The normalized (x, y) position of their index finger on the webcam (may be null).
+SYSTEM_PROMPT = """You are WHAIP, an AI agent that controls a web browser for the user.
 
-Always respond with a single valid JSON object and nothing else:
+You receive:
+- A screenshot of the current browser viewport.
+- The user's voice command.
+- The (x, y) position of their index finger on screen (if available).
+
+Your job: decide the single best next browser action.
+
+Respond ONLY with a valid JSON object, no markdown, no explanation:
 {
   "action": "click" | "type" | "scroll" | "navigate" | "wait" | "done",
-  "x": <integer pixel x, only for click>,
-  "y": <integer pixel y, only for click>,
-  "text": "<string, for type or navigate>",
-  "direction": "up" | "down"  (only for scroll),
-  "reason": "<always present, brief explanation>"
+  "x": <integer pixel x — only for click>,
+  "y": <integer pixel y — only for click>,
+  "text": "<string — for type or navigate>",
+  "direction": "up" | "down",
+  "reason": "<brief explanation in the user's language, always present>"
 }
-""".strip()
+
+Rules:
+- For navigation use action=navigate and text=URL.
+- For typing into a field use action=type and text=what to type.
+- If nothing to do yet, use action=wait.
+- NEVER include markdown fences or any text outside the JSON object.
+- Reply in the same language the user speaks.""".strip()
+
 
 class ClaudeClient:
     """Calls the Claude API and parses WHP action responses."""
@@ -37,15 +48,26 @@ class ClaudeClient:
     def __init__(self, config: dict):
         self.config  = config
         self.enabled = bool(config.get("anthropic_api_key", "").strip())
-        self._client = None   # anthropic.Anthropic instance
+        self._client = None
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
-    def setup(self):
-        """Initialize the Anthropic client. No-op if disabled."""
-        # TODO: if not self.enabled → return
-        # TODO: import anthropic; self._client = anthropic.Anthropic(api_key=...)
-        pass
+    def setup(self) -> None:
+        if not self.enabled:
+            logger.info("ClaudeClient disabled (no anthropic_api_key).")
+            return
+        try:
+            import anthropic
+            self._client = anthropic.Anthropic(
+                api_key=self.config["anthropic_api_key"]
+            )
+            logger.info("ClaudeClient ready.")
+        except ImportError:
+            logger.warning("ClaudeClient disabled – anthropic package not installed.")
+            self.enabled = False
+        except Exception as exc:
+            logger.warning("ClaudeClient disabled – init error: %s", exc)
+            self.enabled = False
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -54,35 +76,116 @@ class ClaudeClient:
         voice_text: Optional[str],
         hand_pos: Optional[Tuple[float, float]],
         screenshot_b64: Optional[str],
-        memory,             # Memory instance for context injection
+        memory=None,
     ) -> dict:
         """
-        Build a multimodal Claude message and return the parsed WHP action dict.
-        Returns a 'wait' action with a reason if Claude is disabled or errors.
+        Ask Claude what to do next given the current context.
+        Returns a WHP action dict. Never raises — returns wait on any error.
         """
-        # TODO: if not self.enabled → return {"action": "wait", "reason": "Claude disabled"}
-        # TODO: build messages list:
-        #   - user message with image_url block (screenshot_b64)
-        #   - text block with voice_text and hand_pos
-        #   - inject relevant memory context
-        # TODO: call self._client.messages.create(model="claude-opus-4-6", ...)
-        # TODO: parse JSON from response.content[0].text
-        # TODO: validate action field is in WHP_ACTIONS
-        # TODO: return parsed dict; on parse error → {"action": "wait", "reason": "parse error"}
-        pass
+        if not self.enabled or not self._client:
+            return {"action": "wait", "reason": "Claude no configurado."}
 
-    def _build_user_message(
+        if not voice_text and not screenshot_b64:
+            return {"action": "wait", "reason": "Sin input."}
+
+        try:
+            memory_context = ""
+            if memory:
+                try:
+                    memory_context = await memory.get_context()
+                except Exception:
+                    pass
+
+            content = self._build_content(voice_text, hand_pos, screenshot_b64, memory_context)
+
+            import asyncio
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self._client.messages.create(
+                    model="claude-opus-4-6",
+                    max_tokens=256,
+                    system=SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": content}],
+                ),
+            )
+
+            raw = response.content[0].text
+            return self._parse_response(raw)
+
+        except Exception as exc:
+            logger.error("Claude API error: %s", exc)
+            return {"action": "wait", "reason": f"Error: {exc}"}
+
+    # ── Internal ───────────────────────────────────────────────────────────
+
+    def _build_content(
         self,
         voice_text: Optional[str],
         hand_pos: Optional[Tuple[float, float]],
         screenshot_b64: Optional[str],
         memory_context: str,
     ) -> list:
-        """Build the Claude messages list for one decision turn."""
-        # TODO: construct content blocks: image (if screenshot), then text summary
-        pass
+        content = []
+
+        # Screenshot (vision)
+        if screenshot_b64:
+            content.append({
+                "type": "image",
+                "source": {
+                    "type":       "base64",
+                    "media_type": "image/jpeg",
+                    "data":       screenshot_b64,
+                },
+            })
+
+        # Text context block
+        parts = []
+        if voice_text:
+            parts.append(f"Comando de voz: {voice_text}")
+        if hand_pos:
+            parts.append(f"Dedo índice en pantalla: x={hand_pos[0]:.0f}, y={hand_pos[1]:.0f}")
+        if memory_context:
+            parts.append(f"Contexto previo:\n{memory_context}")
+        if not parts:
+            parts.append("Sin comando de voz. Analiza la pantalla y espera.")
+
+        content.append({"type": "text", "text": "\n".join(parts)})
+        return content
 
     def _parse_response(self, raw: str) -> dict:
-        """Parse and validate a Claude JSON response string into a WHP dict."""
-        # TODO: json.loads(raw), validate required fields, return dict
-        pass
+        """Extract and validate the WHP JSON from Claude's response."""
+        text = raw.strip()
+
+        # Strip accidental markdown fences
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text)
+        text = text.strip()
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Try extracting a JSON object from surrounding prose
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                try:
+                    data = json.loads(match.group())
+                except json.JSONDecodeError:
+                    logger.error("Unparseable Claude response: %s", text[:200])
+                    return {"action": "wait", "reason": "Respuesta no parseable."}
+            else:
+                logger.error("No JSON in Claude response: %s", text[:200])
+                return {"action": "wait", "reason": "Sin JSON en respuesta."}
+
+        # Validate action
+        action = data.get("action", "wait")
+        if action not in WHP_ACTIONS:
+            logger.warning("Unknown action '%s', defaulting to wait.", action)
+            data["action"] = "wait"
+
+        # Ensure reason is always present
+        if not data.get("reason"):
+            data["reason"] = action
+
+        logger.info("Claude → %s | %s", data["action"], data.get("reason", ""))
+        return data

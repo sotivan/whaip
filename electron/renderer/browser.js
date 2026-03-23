@@ -116,10 +116,17 @@ function handleNavigate(url) {
   addressBar.value = webview.src
 }
 
-// ── Incoming WHP messages ─────────────────────────────────────────────────────
+// ── Screenshot responder ──────────────────────────────────────────────────────
 
-window.whaip.onAgentMessage(data => {
-  if (data.action) executeAction(data)
+window.whaip.onAgentMessage(async data => {
+  if (data.type === 'screenshot:request') {
+    const b64 = await window.whaip.captureScreenshot()
+    window.whaip.sendToAgent({ type: 'screenshot:response', data: b64 })
+    return
+  }
+  if (data.type === 'action' && data.action) {
+    executeAction(data)
+  }
 })
 
 // ── Init ──────────────────────────────────────────────────────────────────────
