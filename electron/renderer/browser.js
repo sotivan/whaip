@@ -373,7 +373,7 @@ const DOM_EXTRACTOR_JS = `
       && window.getComputedStyle(el).visibility !== 'hidden'
       && window.getComputedStyle(el).display !== 'none';
   }
-  const out = { url: location.href, title: document.title, buttons: [], inputs: [], links: [], text: '' };
+  const out = { url: location.href, title: document.title, readyState: document.readyState, buttons: [], inputs: [], links: [], text: '' };
 
   // Include web components (custom elements with '-' in tag name)
   document.querySelectorAll('button,[role="button"],[type="submit"],[type="button"],[role="tab"],[role="menuitem"],[role="option"],pie-button,pie-icon-button,pie-radio,[class*="radio"],[class*="Radio"]').forEach(el => {

@@ -91,9 +91,13 @@ COMMON PATTERNS:
 For most tasks, NAVIGATE directly — it's instant and 100% reliable:
   YouTube:       navigate → https://www.youtube.com/results?search_query=QUERY
   Google:        navigate → https://www.google.com/search?q=QUERY
-  Just Eat ES:   navigate → https://www.just-eat.es/search?q=QUERY&postcode=POSTCODE
-  Glovo:         navigate → https://glovoapp.com
+  Just Eat ES:   navigate → https://www.just-eat.es/ (then JS to fill address + search)
+  Glovo ES:      navigate → https://glovoapp.com/es/es/madrid/ (adjust city)
   Amazon ES:     navigate → https://www.amazon.es/s?k=QUERY
+  Google Maps:   navigate → https://www.google.com/maps/search/QUERY
+
+AFTER NAVIGATE: always use wait (1 step) if the DOM snapshot shows readyState=loading.
+DO NOT navigate to a new URL just because the DOM snapshot has few elements — the page may still be loading. Use wait instead.
 
 ══ COOKIES & ADS — IGNORE ══════════════════════════════════════════════════════════
 
@@ -240,7 +244,9 @@ class ClaudeClient:
         if dom_snapshot:
             try:
                 snap = json.loads(dom_snapshot)
-                lines = [f"DOM SNAPSHOT — {snap.get('url','')} | {snap.get('title','')}"]
+                ready = snap.get("readyState", "complete")
+                loading_warn = " ⚠️ PÁGINA CARGANDO (readyState=loading) — usa wait antes de actuar" if ready != "complete" else ""
+                lines = [f"DOM SNAPSHOT — {snap.get('url','')} | {snap.get('title','')}{loading_warn}"]
 
                 btns = snap.get("buttons", [])
                 if btns:

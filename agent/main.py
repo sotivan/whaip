@@ -344,7 +344,7 @@ class AgentLoop:
             # ── Loop detection: same action 3× in a row → force escape ────
             if len(history) >= 3:
                 last3 = [h["action"] for h in history[-3:]]
-                if len(set(last3)) == 1 and last3[0] in ("click", "js", "wait"):
+                if len(set(last3)) == 1 and last3[0] in ("click", "js", "wait", "navigate"):
                     escape = (
                         f" [⚠️ BUCLE: llevas {len(last3)} pasos repitiendo '{last3[0]}' "
                         f"sin avanzar. Cambia COMPLETAMENTE de estrategia: "
@@ -362,7 +362,9 @@ class AgentLoop:
             cmd["_id"] = action_id
 
             await self.broadcast({"type": "action", **cmd})
-            await asyncio.sleep(STEP_DELAY)
+            # Navigate needs more time for page to load; js/scroll need less
+            delay = 3.0 if action == "navigate" else (0.8 if action in ("scroll", "wait") else STEP_DELAY)
+            await asyncio.sleep(delay)
 
             result = self._action_results.pop(action_id, None)
             result_str = ""
