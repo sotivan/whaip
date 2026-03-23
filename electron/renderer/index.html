@@ -59,15 +59,9 @@
 
   <!-- ── Main layout ──────────────────────────────────────────────── -->
   <main id="layout">
-    <!-- Embedded browser -->
-    <section id="browser-pane">
-      <webview id="webview"
-               src="https://www.google.com"
-               allowpopups
-               webpreferences="contextIsolation=yes"></webview>
 
-      <!-- ── Start screen ──────────────────────────────────────────────────────── -->
-      <div id="start-screen">
+    <!-- ── Start screen — covers full layout (browser + sidebar) ─────── -->
+    <div id="start-screen">
         <!-- Settings (3 dots) -->
         <button id="start-settings-btn" title="Configuración">
           <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
@@ -103,6 +97,13 @@
           <span id="start-hint">Pulsa para comenzar</span>
         </div>
       </div>
+
+    <!-- Embedded browser -->
+    <section id="browser-pane">
+      <webview id="webview"
+               src="about:blank"
+               allowpopups
+               webpreferences="contextIsolation=yes"></webview>
 
       <!-- Hand cursor overlay -->
       <canvas id="hand-overlay"></canvas>
