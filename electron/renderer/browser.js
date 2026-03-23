@@ -67,35 +67,39 @@ webview.addEventListener('did-start-loading', () => {
 
 const COOKIE_JS = `
 (function() {
-  // 1. Click by text (covers most sites)
-  const textRe = /aceptar|accept|허용|allow all|alle akzept|i agree|ok, acepto|acepto|got it|entendido|continuar|permitir|concordo|agree|consent/i;
-  const byText = [...document.querySelectorAll('button,[role="button"],a')].find(b => textRe.test(b.innerText));
-  if (byText) { byText.click(); return 'clicked: ' + byText.innerText.slice(0,30); }
+  const textRe = /aceptar|accept|allow all|alle akzept|i agree|acepto|got it|entendido|permitir|concordo|agree|consent|alle cookies/i;
 
-  // 2. Click by common CSS selectors (hashed class names won't match, but data-* attrs often do)
-  const sel = [
-    '[data-testid*="accept"]','[data-testid*="cookie"]','[data-testid*="consent"]',
-    '[id*="accept"]','[id*="cookie"]','[id*="consent"]','[id*="gdpr"]',
-    '[class*="accept-btn"]','[class*="cookie-btn"]','[class*="consent-btn"]',
-  ].join(',');
-  const byAttr = document.querySelector(sel);
+  // 1. Main document — click by text
+  const byText = [...document.querySelectorAll('button,[role="button"],a')].find(b => textRe.test(b.innerText));
+  if (byText) { byText.click(); return 'clicked main: ' + byText.innerText.slice(0,30); }
+
+  // 2. Search inside ALL iframes (OneTrust, CookieBot, etc. load in iframes)
+  for (const fr of document.querySelectorAll('iframe')) {
+    try {
+      const d = fr.contentDocument || fr.contentWindow.document;
+      if (!d) continue;
+      const btn = [...d.querySelectorAll('button,[role="button"],a')].find(b => textRe.test(b.innerText));
+      if (btn) { btn.click(); return 'clicked iframe: ' + btn.innerText.slice(0,30); }
+    } catch(e) {}
+  }
+
+  // 3. Click by data-* attributes
+  const byAttr = document.querySelector('[data-testid*="accept"],[id*="accept"],[id*="cookie-accept"],[id*="onetrust-accept"]');
   if (byAttr) { byAttr.click(); return 'clicked attr: ' + byAttr.id; }
 
-  // 3. Nuclear: remove fixed/sticky overlays with high z-index that block the page
+  // 4. Nuclear: hide fixed overlays blocking the page
   let removed = 0;
   document.querySelectorAll('*').forEach(el => {
     try {
       const s = window.getComputedStyle(el);
-      const z = parseInt(s.zIndex) || 0;
-      if ((s.position === 'fixed' || s.position === 'sticky') && z > 999 && el.offsetHeight > 80) {
-        el.remove(); removed++;
+      if ((s.position==='fixed'||s.position==='sticky') && parseInt(s.zIndex)>999 && el.offsetHeight>80) {
+        el.style.display = 'none'; removed++;
       }
     } catch(e) {}
   });
   document.body.style.overflow = '';
-  document.documentElement.style.overflow = '';
-  if (removed) return 'nuked ' + removed + ' overlay(s)';
-  return 'no banner found';
+  if (removed) return 'hid ' + removed + ' overlay(s)';
+  return 'no banner';
 })()
 `
 
@@ -114,9 +118,10 @@ const YOUTUBE_AD_JS = `
 let _adInterval = null
 
 function startAutoClean(url) {
-  // Cookies: fire at 1s and 3s after load (some banners load late)
+  // Cookies: fire at 1s, 3s and 6s after load (some CMPs load late)
   setTimeout(() => webview.executeJavaScript(COOKIE_JS).catch(() => {}), 1000)
   setTimeout(() => webview.executeJavaScript(COOKIE_JS).catch(() => {}), 3000)
+  setTimeout(() => webview.executeJavaScript(COOKIE_JS).catch(() => {}), 6000)
 
   // YouTube ads: poll every 2s
   if (_adInterval) clearInterval(_adInterval)
