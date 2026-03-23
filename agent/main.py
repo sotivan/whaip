@@ -106,6 +106,9 @@ class AgentLoop:
             self._pending_screenshot = data.get("data")
             self._screenshot_event.set()
 
+        elif msg_type == "mic:toggle":
+            self.voice.set_active(data.get("active", True))
+
         elif msg_type == "action:result":
             action_id = data.get("action_id")
             if action_id:

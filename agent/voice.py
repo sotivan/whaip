@@ -64,6 +64,8 @@ class VoiceListener:
         self._text_queue: asyncio.Queue = asyncio.Queue()  # transcriptions for callers
 
         self._stop_event  = threading.Event()
+        self._active      = threading.Event()   # push-to-talk gate
+        self._active.set()                       # on by default
         self._capture_thread: Optional[threading.Thread] = None
         self._bridge_task: Optional[asyncio.Task]        = None
 
@@ -154,6 +156,10 @@ class VoiceListener:
             chunk = indata[:, 0].copy()   # mono float32
             rms   = float(np.sqrt(np.mean(chunk ** 2)))
             loud  = rms > RMS_THRESHOLD
+
+            # Push-to-talk gate — ignore audio when mic is muted
+            if not self._active.is_set():
+                return
 
             if loud:
                 silence_count = 0
@@ -290,6 +296,15 @@ class VoiceListener:
             return ""
 
     # ── Public API ─────────────────────────────────────────────────────────
+
+    def set_active(self, active: bool) -> None:
+        """Enable or disable mic capture (push-to-talk)."""
+        if active:
+            self._active.set()
+            logger.info("Mic ON")
+        else:
+            self._active.clear()
+            logger.info("Mic OFF")
 
     async def get_latest(self) -> Optional[str]:
         """
