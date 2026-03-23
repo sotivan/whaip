@@ -147,10 +147,11 @@ class ClaudeClient:
             parts.append(f"Dedo índice en: x={hand_pos[0]:.0f}, y={hand_pos[1]:.0f}")
 
         if history:
-            parts.append("\nACCIONES YA INTENTADAS:")
+            parts.append("\nACCIONES YA INTENTADAS Y SUS RESULTADOS:")
             for i, h in enumerate(history, 1):
-                parts.append(f"  {i}. {h.get('action')} — {h.get('reason','')}")
-            parts.append("\nAnaliza el screenshot y decide la siguiente acción.")
+                result = h.get("result", "")
+                parts.append(f"  {i}. [{h.get('action')}] {h.get('reason','')} → {result}")
+            parts.append("\nAnaliza el screenshot y el historial. Si algo falló, prueba un enfoque COMPLETAMENTE distinto.")
         else:
             parts.append("\nPrimera acción. Analiza el screenshot y decide qué hacer.")
 

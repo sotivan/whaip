@@ -70,18 +70,17 @@ async function executeAction(cmd) {
     case 'type':      return handleType(cmd.text)
     case 'scroll':    return handleScroll(cmd.direction)
     case 'navigate':  return handleNavigate(cmd.text)
-    case 'js':        return handleJS(cmd.code)
+    case 'js':        return handleJS(cmd.code, cmd._id)
     case 'wait':      return
     case 'done':      return window.dispatchEvent(new CustomEvent('whaip:done', { detail: cmd }))
     default: console.warn('[browser] unknown action:', cmd.action)
   }
 }
 
-function handleJS(code) {
+function handleJS(code, actionId) {
   if (!code) return
   console.log('[whaip] executing JS:', code.slice(0, 200))
 
-  // Inject a helper so Claude-generated code can set React/Vue inputs reliably
   const wrapped = `
     (function() {
       function setInput(el, value) {
@@ -99,12 +98,29 @@ function handleJS(code) {
         el.dispatchEvent(new KeyboardEvent('keypress', { key:'Enter', keyCode:13, bubbles:true }));
         el.dispatchEvent(new KeyboardEvent('keyup',    { key:'Enter', keyCode:13, bubbles:true }));
       }
-      ${code}
+      return (function(){ ${code} })();
     })()
   `
-  webview.executeJavaScript(wrapped).catch(err => {
-    console.error('[whaip] JS error:', err.message)
-  })
+  webview.executeJavaScript(wrapped)
+    .then(result => {
+      window.whaip.sendToAgent({
+        type: 'action:result',
+        action_id: actionId,
+        ok: true,
+        result: String(result ?? 'ok'),
+        url: location.href,
+      })
+    })
+    .catch(err => {
+      console.error('[whaip] JS error:', err.message)
+      window.whaip.sendToAgent({
+        type: 'action:result',
+        action_id: actionId,
+        ok: false,
+        error: err.message,
+        url: location.href,
+      })
+    })
 }
 
 function handleClick(x, y, buttonText) {

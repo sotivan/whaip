@@ -59,6 +59,7 @@ class AgentLoop:
         self._screenshot_event  = asyncio.Event()
         self._pending_screenshot: Optional[str] = None
         self._current_task: Optional[asyncio.Task] = None
+        self._action_results: dict = {}   # action_id → result dict
 
         self.voice  = VoiceListener(config)
         self.claude = ClaudeClient(config)
@@ -105,8 +106,16 @@ class AgentLoop:
             self._pending_screenshot = data.get("data")
             self._screenshot_event.set()
 
-        elif msg_type == "action:done":
-            logger.info("Action done: %s", data.get("action"))
+        elif msg_type == "action:result":
+            action_id = data.get("action_id")
+            if action_id:
+                self._action_results[action_id] = data
+                logger.info(
+                    "Action result [%s]: ok=%s %s",
+                    action_id,
+                    data.get("ok"),
+                    data.get("error", data.get("result", "")),
+                )
 
     # ── Screenshot request ─────────────────────────────────────────────────
 
@@ -132,8 +141,9 @@ class AgentLoop:
         Claude acts → sees result → acts again until done or max_steps.
         """
         MAX_STEPS  = 8
-        STEP_DELAY = 1.2   # seconds between actions (let page settle)
+        STEP_DELAY = 1.5   # seconds between actions (let page settle)
         history    = []
+        action_counter = 0
 
         await self.broadcast({"type": "status", "state": "thinking"})
 
@@ -150,10 +160,31 @@ class AgentLoop:
             action = cmd.get("action", "wait")
             reason = cmd.get("reason", "")
 
+            # Tag action with ID so we can match result
+            action_counter += 1
+            action_id = f"a{action_counter}"
+            cmd["_id"] = action_id
+
             # Show in sidebar
             await self.broadcast({"type": "action", **cmd})
 
-            history.append({"action": action, "reason": reason})
+            # Wait for execution + page reaction
+            await asyncio.sleep(STEP_DELAY)
+
+            # Collect result feedback if available
+            result = self._action_results.pop(action_id, None)
+            result_str = ""
+            if result:
+                if result.get("ok"):
+                    result_str = f"✓ ejecutado ok. URL actual: {result.get('url','')}"
+                else:
+                    result_str = f"✗ ERROR: {result.get('error','unknown error')}"
+
+            history.append({
+                "action": action,
+                "reason": reason,
+                "result": result_str or "sin feedback (click/navigate/type)",
+            })
 
             if action == "done":
                 logger.info("Task complete after %d steps: %s", step + 1, goal)
@@ -161,11 +192,7 @@ class AgentLoop:
                 return
 
             if action == "wait":
-                await asyncio.sleep(STEP_DELAY)
                 continue
-
-            # Give the page time to react before taking next screenshot
-            await asyncio.sleep(STEP_DELAY)
 
         logger.warning("Task hit max_steps (%d): %s", MAX_STEPS, goal)
         await self.broadcast({
