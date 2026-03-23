@@ -1,6 +1,10 @@
 /**
  * WHAIP – Start screen
  * Shown on launch and each new tab. Click mic to begin session.
+ *
+ * NOTE: Electron <webview> elements render in their own Chromium compositing
+ * layer and ignore CSS z-index. We must hide them explicitly while the start
+ * screen is visible, then restore them on dismiss.
  */
 
 const startScreen     = document.getElementById('start-screen')
@@ -11,16 +15,29 @@ const settingsBtn     = document.getElementById('start-settings-btn')
 const settingsPanel   = document.getElementById('start-settings-panel')
 const themeToggle     = document.getElementById('theme-toggle')
 
+// ── Webview visibility helpers ────────────────────────────────────────────────
+
+function setWebviewsVisible(visible) {
+  document.querySelectorAll('webview').forEach(wv => {
+    wv.style.visibility = visible ? '' : 'hidden'
+  })
+}
+
+// Hide all webviews immediately so they don't bleed through the start screen
+setWebviewsVisible(false)
+
 // ── Visibility ────────────────────────────────────────────────────────────────
 
 window.showStartScreen = function() {
   startScreen.classList.remove('ss-gone')
+  setWebviewsVisible(false)
 }
 
 window.hideStartScreen = function() {
   if (startScreen.classList.contains('ss-gone')) return  // already hidden
   startScreen.classList.add('ss-gone')
-  // Load home URL now that the user is actively using the browser
+  // Restore webviews and load home URL
+  setWebviewsVisible(true)
   if (typeof window.loadHomeUrl === 'function') window.loadHomeUrl()
 }
 
