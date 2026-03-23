@@ -114,6 +114,44 @@ class IntentClassifier:
         "puedes", "podrías", "podrias", "puedes",
     }
 
+    # Common Whisper hallucination phrases — drop without any API call
+    _HALLUCINATIONS = {
+        "gracias", "gracias por ver", "gracias por", "thank you",
+        "suscríbete", "subscríbete", "like y suscríbete",
+        "fin", "the end", "subtítulos", "subtitulos",
+    }
+
+    @staticmethod
+    def _looks_like_noise(transcription: str) -> bool:
+        """
+        Quick local check — returns True if this is almost certainly not a
+        real user command. Goal: avoid paying for Haiku on ambient audio.
+        """
+        import re as _re
+        t = transcription.strip().lower()
+
+        # Remove punctuation for analysis
+        words = _re.sub(r"[^\w\s]", "", t).split()
+        if not words:
+            return True
+
+        # Count words that look like real words (≥3 chars with at least one vowel)
+        real = sum(1 for w in words if len(w) >= 3 and _re.search(r"[aeiouáéíóúü]", w))
+        if len(words) >= 2 and real / len(words) < 0.4:
+            return True   # >60% garbage words → noise
+
+        # Mixed gibberish: words from very different languages in one phrase
+        # (Whisper picks up TV/music in other languages)
+        non_spanish = sum(1 for w in words if _re.search(r"[kwyq]", w) and len(w) >= 4)
+        if non_spanish >= 2 and real < 3:
+            return True
+
+        # All-caps fragments or repeated exclamations
+        if t.count("!") >= 2 and len(words) <= 6:
+            return True
+
+        return False
+
     async def classify(self, transcription: str) -> Optional[str]:
         """
         Returns the clean intent string if this is a real command, else None.
@@ -127,6 +165,17 @@ class IntentClassifier:
         # Fast heuristic: too short or pure noise
         if len(words) < 2 and transcription.lower() not in ("sí", "si", "no", "para", "espera", "stop"):
             logger.debug("Ignored (too short): %s", transcription)
+            return None
+
+        # Local noise filter — free, no API call
+        if self._looks_like_noise(transcription):
+            logger.debug("Ignored (local noise filter): %s", transcription[:60])
+            return None
+
+        # Known Whisper hallucinations — drop immediately
+        t_clean = transcription.strip().lower().rstrip(".")
+        if t_clean in self._HALLUCINATIONS:
+            logger.debug("Ignored (hallucination): %s", transcription)
             return None
 
         # Fast-path: if starts with a known command verb → skip classifier, always a command

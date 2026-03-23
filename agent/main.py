@@ -260,6 +260,20 @@ class AgentLoop:
                     history.append({"action": "ask", "reason": question, "result": "sin respuesta"})
                 continue
 
+            # ── Loop detection: same action 3× in a row → force escape ────
+            if len(history) >= 3:
+                last3 = [h["action"] for h in history[-3:]]
+                if len(set(last3)) == 1 and last3[0] in ("click", "js", "wait"):
+                    escape = (
+                        f" [⚠️ BUCLE: llevas {len(last3)} pasos repitiendo '{last3[0]}' "
+                        f"sin avanzar. Cambia COMPLETAMENTE de estrategia: "
+                        f"usa navigate a una URL directa, o JS nuclear para quitar overlays, "
+                        f"o declara done si el objetivo ya no es alcanzable.]"
+                    )
+                    if escape not in goal:
+                        goal = goal + escape
+                        logger.warning("Loop detected (%s ×3) — injecting escape hint", last3[0])
+
             # ── Browser actions ────────────────────────────────────────────
 
             action_counter += 1
