@@ -421,3 +421,123 @@ webview {
 }
 .bm-menu-item:hover { background: var(--color-border); }
 .bm-menu-delete:hover { background: rgba(220,38,38,0.15); color: #f87171; }
+
+/* ── Tabs bar ─────────────────────────────────────────────────────────── */
+#tabs-bar {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 4px 4px 0;
+  background: #0a0a0c;
+  gap: 2px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+#tabs-list {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+  height: 100%;
+}
+
+#tabs-list::-webkit-scrollbar { display: none; }
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  min-width: 80px;
+  max-width: 200px;
+  padding: 0 8px 0 10px;
+  background: var(--color-surface);
+  border-radius: 8px 8px 0 0;
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s;
+  position: relative;
+}
+
+.tab-item:not(.tab-active) {
+  background: #111113;
+  border-color: transparent;
+}
+
+.tab-item:not(.tab-active):hover {
+  background: #18181b;
+}
+
+.tab-active {
+  background: var(--color-bg);
+  border-color: var(--color-border);
+  z-index: 1;
+}
+
+.tab-favicon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.tab-favicon-placeholder {
+  font-size: 10px;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.tab-title {
+  flex: 1;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  user-select: none;
+}
+
+.tab-item:not(.tab-active) .tab-title { color: var(--color-muted); }
+
+.tab-close {
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s;
+}
+
+.tab-item:hover .tab-close,
+.tab-active .tab-close { opacity: 1; }
+
+.tab-close:hover { background: rgba(255,255,255,0.1); color: var(--color-text); }
+
+#btn-new-tab {
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+}
+
+#btn-new-tab:hover { background: var(--color-border); color: var(--color-text); }

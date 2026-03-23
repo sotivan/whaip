@@ -2,11 +2,15 @@
  * WHAIP – Browser pane controller
  */
 
-const webview    = document.getElementById('webview')
+// webview is now managed by tabs.js — always get the active one
+const webview    = document.getElementById('webview')  // initial reference, tabs.js takes over
 const addressBar = document.getElementById('address-bar')
 const btnBack    = document.getElementById('btn-back')
 const btnForward = document.getElementById('btn-forward')
 const btnReload  = document.getElementById('btn-reload')
+
+// Delegate to active tab's webview
+function wv() { return window.getActiveWebview?.() || webview }
 
 // ── Address bar ─────────────────────────────────────────────────────────────
 
@@ -23,44 +27,22 @@ function normalizeUrl(input) {
 
 addressBar.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
-    webview.src = normalizeUrl(addressBar.value)
-    webview.blur()
+    wv().src = normalizeUrl(addressBar.value)
+    addressBar.blur()
   }
 })
 
 // ── Nav buttons ──────────────────────────────────────────────────────────────
 
-btnBack.addEventListener('click',    () => webview.canGoBack()    && webview.goBack())
-btnForward.addEventListener('click', () => webview.canGoForward() && webview.goForward())
-btnReload.addEventListener('click',  () => webview.reload())
+btnBack.addEventListener('click',    () => wv().canGoBack?.()    && wv().goBack())
+btnForward.addEventListener('click', () => wv().canGoForward?.() && wv().goForward())
+btnReload.addEventListener('click',  () => wv().reload())
 
-// ── Webview events ────────────────────────────────────────────────────────────
+// ── Webview events — navigation, title, loading are handled per-tab in tabs.js ─
 
+// did-navigate fires startAutoClean for cookie/ad dismissal on the first tab
 webview.addEventListener('did-navigate', e => {
-  addressBar.value = e.url
-  btnBack.style.opacity    = webview.canGoBack()    ? '1' : '0.35'
-  btnForward.style.opacity = webview.canGoForward() ? '1' : '0.35'
-  window.whaip.sendToAgent({ type: 'page:context', url: e.url, title: document.title })
   startAutoClean(e.url)
-})
-
-webview.addEventListener('page-title-updated', e => {
-  window.whaip.sendToAgent({ type: 'page:context', url: webview.src, title: e.title })
-})
-
-webview.addEventListener('did-navigate-in-page', e => {
-  addressBar.value = e.url
-})
-
-webview.addEventListener('page-title-updated', e => {
-  document.title = `${e.title} — WHAIP`
-  window.whaip.sendToAgent({ type: 'page:context', url: webview.src, title: e.title })
-})
-
-webview.addEventListener('did-start-loading', () => {
-  btnReload.textContent = '✕'
-  btnReload.title = 'Stop'
-  btnReload.onclick = () => webview.stop()
 })
 
 // ── Auto-dismiss: cookies + ads (runs on every page load, no Claude needed) ──────
@@ -119,7 +101,7 @@ let _adInterval = null
 
 function runCookieDismiss() {
   // 1. Try in main frame (fast)
-  webview.executeJavaScript(COOKIE_JS).catch(() => {})
+  wv().executeJavaScript(COOKIE_JS).catch(() => {})
   // 2. Try in ALL frames via main process (catches cross-origin iframes like OneTrust, CookieBot)
   window.whaip.dismissCookies().catch(() => {})
 }
@@ -134,7 +116,7 @@ function startAutoClean(url) {
   if (_adInterval) clearInterval(_adInterval)
   if (url && url.includes('youtube.com')) {
     _adInterval = setInterval(() => {
-      webview.executeJavaScript(YOUTUBE_AD_JS).catch(() => {})
+      wv().executeJavaScript(YOUTUBE_AD_JS).catch(() => {})
     }, 2000)
   } else {
     _adInterval = null
@@ -142,7 +124,7 @@ function startAutoClean(url) {
 
   // Detect login forms and offer autofill if we have credentials
   setTimeout(() => {
-    webview.executeJavaScript(`
+    wv().executeJavaScript(`
         const hasPwd = !!document.querySelector('input[type="password"]');
         const hasUser = !!document.querySelector('input[type="email"],input[type="text"][name*="user" i],input[name*="email" i]');
         if (hasPwd && hasUser) {
@@ -158,11 +140,7 @@ function startAutoClean(url) {
   }, 1500)
 }
 
-webview.addEventListener('did-stop-loading', () => {
-  btnReload.textContent = '⟳'
-  btnReload.title = 'Reload'
-  btnReload.onclick = () => webview.reload()
-})
+// did-stop-loading per-tab is handled in tabs.js
 
 // ── WHP action executor ───────────────────────────────────────────────────────
 
@@ -246,14 +224,14 @@ function buildJS(code) {
 
 function handleJS(code, actionId) {
   if (!code) return
-  webview.executeJavaScript(buildJS(code))
+  wv().executeJavaScript(buildJS(code))
     .then(result => window.whaip.sendToAgent({
       type: 'action:result', action_id: actionId, ok: true,
-      result: String(result ?? 'ok'), url: webview.getURL?.() || webview.src,
+      result: String(result ?? 'ok'), url: wv().getURL?.() || wv().src,
     }))
     .catch(err => window.whaip.sendToAgent({
       type: 'action:result', action_id: actionId, ok: false,
-      error: err.message, url: webview.getURL?.() || webview.src,
+      error: err.message, url: wv().getURL?.() || wv().src,
     }))
 }
 
@@ -262,30 +240,31 @@ function handleJS(code, actionId) {
 function navigateAndWait(url, timeoutMs) {
   return new Promise((resolve, reject) => {
     _pendingNavId = null   // don't trigger the global listener
+    const activeWv = wv()
     const t = setTimeout(() => {
-      webview.removeEventListener('did-finish-load', onLoad)
-      webview.removeEventListener('did-fail-load',   onFail)
+      activeWv.removeEventListener('did-finish-load', onLoad)
+      activeWv.removeEventListener('did-fail-load',   onFail)
       reject(new Error('navigate timeout'))
     }, timeoutMs || 12000)
     function onLoad() {
       clearTimeout(t)
-      webview.removeEventListener('did-finish-load', onLoad)
-      webview.removeEventListener('did-fail-load',   onFail)
-      addressBar.value = webview.getURL?.() || webview.src
-      window.whaip.sendToAgent({ type: 'page:context', url: webview.getURL?.() || webview.src, title: '' })
+      activeWv.removeEventListener('did-finish-load', onLoad)
+      activeWv.removeEventListener('did-fail-load',   onFail)
+      addressBar.value = activeWv.getURL?.() || activeWv.src
+      window.whaip.sendToAgent({ type: 'page:context', url: activeWv.getURL?.() || activeWv.src, title: '' })
       resolve()
     }
     function onFail(e) {
       if (e.errorCode === -3) return  // SPA redirect; did-finish-load follows
       clearTimeout(t)
-      webview.removeEventListener('did-finish-load', onLoad)
-      webview.removeEventListener('did-fail-load',   onFail)
+      activeWv.removeEventListener('did-finish-load', onLoad)
+      activeWv.removeEventListener('did-fail-load',   onFail)
       reject(new Error(e.errorDescription + ' (' + e.errorCode + ')'))
     }
-    webview.addEventListener('did-finish-load', onLoad)
-    webview.addEventListener('did-fail-load',   onFail)
-    webview.src = normalizeUrl(url)
-    addressBar.value = webview.src
+    activeWv.addEventListener('did-finish-load', onLoad)
+    activeWv.addEventListener('did-fail-load',   onFail)
+    activeWv.src = normalizeUrl(url)
+    addressBar.value = activeWv.src
   })
 }
 
@@ -301,7 +280,7 @@ async function waitForContent(selector, timeoutMs) {
     } catch(e) { return false; }
   })()`
   while (Date.now() < deadline) {
-    const found = await webview.executeJavaScript(js).catch(() => false)
+    const found = await wv().executeJavaScript(js).catch(() => false)
     if (found) return true
     await new Promise(r => setTimeout(r, 300))
   }
@@ -309,7 +288,7 @@ async function waitForContent(selector, timeoutMs) {
 }
 
 async function executeScript(steps, scriptId) {
-  const url = () => webview.getURL?.() || webview.src
+  const url = () => wv().getURL?.() || wv().src
   const fail = (i, desc, error) => window.whaip.sendToAgent({
     type: 'script:result', script_id: scriptId, ok: false,
     failed_step: i, failed_desc: desc, error, url: url(),
@@ -322,7 +301,7 @@ async function executeScript(steps, scriptId) {
 
     try {
       if (step.type === 'js') {
-        const r = String(await webview.executeJavaScript(buildJS(step.code)) ?? '')
+        const r = String(await wv().executeJavaScript(buildJS(step.code)) ?? '')
         console.log(`[script] →`, r.slice(0, 120))
         if (r.startsWith('ERROR:') || r.startsWith('NOT FOUND:') || r.startsWith('WC NOT FOUND:'))
           return fail(i, desc, r)
@@ -364,7 +343,7 @@ const aiCursorPulse = document.getElementById('ai-cursor-pulse')
 
 function showAICursor(x, y) {
   // x, y are webview-relative coords — offset by webview's position in layout
-  const rect = webview.getBoundingClientRect()
+  const rect = wv().getBoundingClientRect()
   const absX  = rect.left + x
   const absY  = rect.top  + y
   aiCursor.style.display = 'block'
@@ -418,7 +397,7 @@ function handleClick(x, y, buttonText) {
       })()
     ` : 'JSON.stringify({found:false})'
 
-    webview.executeJavaScript(textScript).then(raw => {
+    wv().executeJavaScript(textScript).then(raw => {
       const res = JSON.parse(raw)
       if (res.found) {
         // Update cursor to actual element position
@@ -428,18 +407,18 @@ function handleClick(x, y, buttonText) {
       }
 
       // Step 3: real Chromium mouse events at coordinates (bypasses JS sandbox — works on overlays)
-      webview.sendInputEvent({ type: 'mouseMoved', x, y })
+      wv().sendInputEvent({ type: 'mouseMoved', x, y })
       setTimeout(() => {
-        webview.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
-        webview.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 })
+        wv().sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+        wv().sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 })
         hideAICursor()
       }, 50)
 
     }).catch(() => {
       // Fallback: real events anyway
-      webview.sendInputEvent({ type: 'mouseMoved', x, y })
-      webview.sendInputEvent({ type: 'mouseDown',  x, y, button: 'left', clickCount: 1 })
-      webview.sendInputEvent({ type: 'mouseUp',    x, y, button: 'left', clickCount: 1 })
+      wv().sendInputEvent({ type: 'mouseMoved', x, y })
+      wv().sendInputEvent({ type: 'mouseDown',  x, y, button: 'left', clickCount: 1 })
+      wv().sendInputEvent({ type: 'mouseUp',    x, y, button: 'left', clickCount: 1 })
       hideAICursor()
     })
   }, 260)
@@ -447,7 +426,7 @@ function handleClick(x, y, buttonText) {
 
 function handleType(text) {
   if (!text) return
-  webview.executeJavaScript(`
+  wv().executeJavaScript(`
     (function() {
       const el = document.activeElement;
       if (!el || el === document.body) return;
@@ -469,7 +448,7 @@ function handleType(text) {
 
 function handleScroll(direction) {
   const dy = direction === 'down' ? 400 : -400
-  webview.executeJavaScript(
+  wv().executeJavaScript(
     `window.scrollBy({ top: ${dy}, behavior: 'smooth' })`
   ).catch(console.error)
 }
@@ -479,8 +458,8 @@ let _pendingNavId = null
 
 function handleNavigate(url, actionId) {
   _pendingNavId = actionId || null
-  webview.src = normalizeUrl(url)
-  addressBar.value = webview.src
+  wv().src = normalizeUrl(url)
+  addressBar.value = wv().src
 }
 
 // Report navigate result when page finishes loading or fails
@@ -602,7 +581,7 @@ window.whaip.onAgentMessage(async data => {
     return
   }
   if (data.type === 'geo:request') {
-    webview.executeJavaScript(`
+    wv().executeJavaScript(`
       new Promise(resolve => {
         if (!navigator.geolocation) { resolve(null); return; }
         navigator.geolocation.getCurrentPosition(
@@ -620,7 +599,7 @@ window.whaip.onAgentMessage(async data => {
   }
   if (data.type === 'dom:request') {
     try {
-      const raw = await webview.executeJavaScript(DOM_EXTRACTOR_JS)
+      const raw = await wv().executeJavaScript(DOM_EXTRACTOR_JS)
       window.whaip.sendToAgent({ type: 'dom:response', data: raw })
     } catch (e) {
       window.whaip.sendToAgent({ type: 'dom:response', data: null })
@@ -628,13 +607,13 @@ window.whaip.onAgentMessage(async data => {
     return
   }
   if (data.type === 'bookmark:get_current') {
-    const pageUrl = webview.getURL?.() || webview.src
+    const pageUrl = wv().getURL?.() || wv().src
     const m = pageUrl.match(/https?:\/\/([^/?#]+)/)
     const domain = m ? m[1].replace(/^www\./, '') : ''
     window.whaip.sendToAgent({
         type:    'bookmark:save',
         url:     pageUrl,
-        title:   webview.getTitle?.() || '',
+        title:   wv().getTitle?.() || '',
         tags:    '',
         favicon: domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '',
     })
@@ -642,7 +621,7 @@ window.whaip.onAgentMessage(async data => {
   }
   if (data.type === 'password:get_domain') {
     // Get domain and ask user for credentials via a small inline form
-    const url = webview.getURL?.() || webview.src
+    const url = wv().getURL?.() || wv().src
     const m = url.match(/https?:\/\/([^/?#]+)/)
     const domain = m ? m[1].replace(/^www\./, '') : ''
     if (domain) {
@@ -652,7 +631,7 @@ window.whaip.onAgentMessage(async data => {
   }
   if (data.type === 'autofill:fill') {
     // Fill login form with credentials received from agent
-    webview.executeJavaScript(buildJS(`
+    wv().executeJavaScript(buildJS(`
         const u = document.querySelector('input[type="email"],input[type="text"][name*="user" i],input[name*="email" i],input[id*="user" i],input[id*="email" i]');
         const p = document.querySelector('input[type="password"]');
         if(u) setInput(u, ${JSON.stringify(data.username)});
@@ -701,7 +680,7 @@ function showPasswordSavePrompt(domain) {
 ;(async function init() {
   const cfg = await window.whaip.getConfig()
   const home = cfg?.browser?.home_url || 'https://www.google.com'
-  webview.src = home
+  wv().src = home
   addressBar.value = home
   btnBack.style.opacity    = '0.35'
   btnForward.style.opacity = '0.35'
