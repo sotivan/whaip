@@ -67,8 +67,8 @@ class AgentLoop:
         self.voice  = VoiceListener(config)
         self.claude = ClaudeClient(config)
         self.intent = IntentClassifier(config)
-        self.tts    = TTSClient(config)
         self.memory = UserMemory()
+        self.tts    = TTSClient(config, memory=self.memory)
 
         # When agent is waiting for a voice answer to a question
         self._waiting_for_answer = False
@@ -218,6 +218,15 @@ class AgentLoop:
 
             # ── Conversational actions (no browser execution) ──────────────
 
+            if action == "set_voice":
+                voice_id = cmd.get("voice_id", "")
+                if voice_id:
+                    self.tts.set_voice(voice_id)
+                confirm = cmd.get("text", "Voz cambiada.")
+                await self.say(confirm)
+                history.append({"action": "set_voice", "reason": reason, "result": "ok"})
+                continue
+
             if action == "speak":
                 text = cmd.get("text", reason)
                 await self.say(text)
@@ -294,6 +303,10 @@ class AgentLoop:
     async def tick(self) -> None:
         raw = await self.voice.get_latest()
         if not raw:
+            return
+
+        # Don't interrupt while waiting for a conversational answer
+        if self._waiting_for_answer:
             return
 
         # ── Intent classification: is this a real command? ──

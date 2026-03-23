@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger("whaip.claude")
 
-WHP_ACTIONS = {"click", "type", "scroll", "navigate", "wait", "js", "done", "speak", "ask"}
+WHP_ACTIONS = {"click", "type", "scroll", "navigate", "wait", "js", "done", "speak", "ask", "set_voice"}
 
 SYSTEM_PROMPT = """You are WHAIP, an autonomous AI agent that controls a web browser AND has a voice conversation with the user.
 
@@ -47,6 +47,14 @@ Use these BEFORE executing browser actions when you need information or want to 
   ask — ask the user a question and WAIT for their voice answer
     {"action":"ask","text":"¿A qué dirección te lo envío?","memory_key":"address","reason":"..."}
     {"action":"ask","text":"¿Tienes alguna preferencia de ingredientes?","memory_key":"food_preferences","reason":"..."}
+
+  set_voice — change ElevenLabs voice (persisted in memory)
+    Common male voices:   "Adam" → voice_id "pNInz6obpgDQGcFmaJgB"
+                          "Antoni" → voice_id "ErXwobaYiN019PkySvjV"
+                          "Josh" → voice_id "TxGEqnHWrfWFTfGW9XjX"
+    Common female voices: "Rachel" → voice_id "21m00Tcm4TlvDq8ikWAM"
+                          "Bella" → voice_id "EXAVITQu4vr4xnSDxMaL"
+    {"action":"set_voice","voice_id":"pNInz6obpgDQGcFmaJgB","text":"Cambiado a voz masculina.","reason":"user requested male voice"}
 
   WHEN TO ASK vs EXECUTE:
   - If the user profile already has the needed info → EXECUTE directly, don't ask again.
