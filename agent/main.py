@@ -123,36 +123,67 @@ class AgentLoop:
             logger.warning("Screenshot request timed out.")
             return None
 
+    # ── Agentic task loop ─────────────────────────────────────────────────
+
+    async def run_task(self, goal: str) -> None:
+        """
+        Run a full agentic loop for a single user goal.
+        Claude acts → sees result → acts again until done or max_steps.
+        """
+        MAX_STEPS  = 8
+        STEP_DELAY = 1.2   # seconds between actions (let page settle)
+        history    = []
+
+        await self.broadcast({"type": "status", "state": "thinking"})
+
+        for step in range(MAX_STEPS):
+            screenshot = await self.request_screenshot()
+
+            cmd = await self.claude.decide(
+                voice_text=goal,
+                hand_pos=None,
+                screenshot_b64=screenshot,
+                history=history,
+            )
+
+            action = cmd.get("action", "wait")
+            reason = cmd.get("reason", "")
+
+            # Show in sidebar
+            await self.broadcast({"type": "action", **cmd})
+
+            history.append({"action": action, "reason": reason})
+
+            if action == "done":
+                logger.info("Task complete after %d steps: %s", step + 1, goal)
+                await self.broadcast({"type": "status", "state": "idle"})
+                return
+
+            if action == "wait":
+                await asyncio.sleep(STEP_DELAY)
+                continue
+
+            # Give the page time to react before taking next screenshot
+            await asyncio.sleep(STEP_DELAY)
+
+        logger.warning("Task hit max_steps (%d): %s", MAX_STEPS, goal)
+        await self.broadcast({
+            "type": "action",
+            "action": "done",
+            "reason": "He llegado al límite de pasos. Intenta de nuevo.",
+        })
+        await self.broadcast({"type": "status", "state": "idle"})
+
     # ── Main tick ─────────────────────────────────────────────────────────
 
     async def tick(self) -> None:
-        # 1. Get latest voice transcription (non-blocking)
         text = await self.voice.get_latest()
         if not text:
             return
 
-        logger.info("Voice: %s", text)
-
-        # Show in sidebar immediately
+        logger.info("Voice goal: %s", text)
         await self.broadcast({"type": "transcript", "role": "user", "text": text})
-        await self.broadcast({"type": "status", "state": "thinking"})
-
-        # 2. Get screenshot from Electron
-        screenshot = await self.request_screenshot()
-
-        # 3. Ask Claude what to do
-        cmd = await self.claude.decide(
-            voice_text=text,
-            hand_pos=None,       # MediaPipe wired in next iteration
-            screenshot_b64=screenshot,
-            memory=None,         # Memory wired in next iteration
-        )
-
-        logger.info("Action: %s – %s", cmd.get("action"), cmd.get("reason"))
-
-        # 4. Send action to Electron (reason shown by sidebar via action message)
-        await self.broadcast({"type": "action", **cmd})
-        await self.broadcast({"type": "status", "state": "idle"})
+        await self.run_task(text)
 
     async def run(self) -> None:
         self.running = True
