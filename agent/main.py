@@ -311,16 +311,22 @@ class AgentLoop:
     async def ask_and_wait(self, question: str, timeout: float = 15.0) -> Optional[str]:
         """
         Speak a question, then wait for the user's voice answer.
-        Temporarily enables the mic even if it was off (e.g. during onboarding).
-        Returns the transcribed answer or None on timeout.
+        Mic stays OFF while TTS plays so Whisper doesn't transcribe the agent's
+        own voice. Activates after TTS finishes + settle delay.
         """
         self._waiting_for_answer = True
-        self.voice.set_active(True)    # always enable mic for answering
+
+        # Speak with mic OFF — prevents Whisper from picking up TTS output
+        self.voice.set_active(False)
         await self.say(question)
         await self.broadcast({"type": "status", "state": "listening"})
 
-        # Drain any stale transcriptions first
-        await self.voice.get_latest()
+        # Let any audio reverb / Whisper pipeline drain before opening mic
+        await asyncio.sleep(0.8)
+        await self.voice.get_latest()   # discard anything that slipped through
+
+        # NOW open mic for the user's answer
+        self.voice.set_active(True)
 
         try:
             answer = await asyncio.wait_for(
@@ -332,7 +338,7 @@ class AgentLoop:
             return None
         finally:
             self._waiting_for_answer = False
-            self.voice.set_active(False)   # back to off until user re-activates
+            self.voice.set_active(False)   # back to off — user presses button to talk
             await self.broadcast({"type": "status", "state": "thinking"})
 
     # ── Agentic task loop ─────────────────────────────────────────────────
