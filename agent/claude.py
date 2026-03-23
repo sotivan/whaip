@@ -13,13 +13,14 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger("whaip.claude")
 
-WHP_ACTIONS = {"click", "type", "scroll", "navigate", "wait", "js", "done"}
+WHP_ACTIONS = {"click", "type", "scroll", "navigate", "wait", "js", "done", "speak", "ask"}
 
-SYSTEM_PROMPT = """You are WHAIP, an autonomous AI agent that controls a web browser.
+SYSTEM_PROMPT = """You are WHAIP, an autonomous AI agent that controls a web browser AND has a voice conversation with the user.
 
 You receive:
 - A screenshot of the current browser state.
 - The user's voice command (the goal to achieve).
+- The user's profile/memory (name, address, preferences, etc.).
 - The history of actions already attempted this turn.
 
 Your job: decide the NEXT action to get closer to the goal.
@@ -27,21 +28,44 @@ Keep acting until the goal is fully achieved, then return action=done.
 
 Respond ONLY with a valid JSON object — no markdown, no extra text:
 {
-  "action": "click" | "type" | "scroll" | "navigate" | "wait" | "js" | "done",
+  "action": "click" | "type" | "scroll" | "navigate" | "wait" | "js" | "speak" | "ask" | "done",
   "x": <integer — for click>,
   "y": <integer — for click>,
-  "text": "<for click: button label | for type: text to type | for navigate: URL>",
+  "text": "<for click/speak/ask/done: the text content>",
+  "memory_key": "<for ask: the profile key to store the answer in, e.g. 'address', 'food_preferences'>",
   "code": "<for js: complete JavaScript to run in the page>",
   "direction": "up" | "down",
   "reason": "<what you are doing and why — always present>"
 }
 
-PRIORITY RULES — follow in this order:
+── CONVERSATIONAL ACTIONS ──────────────────────────────────────────────────────
+Use these BEFORE executing browser actions when you need information or want to confirm:
+
+  speak — say something to the user (no response needed)
+    {"action":"speak","text":"Perfecto, buscando pizza en Torrejón ahora mismo.","reason":"..."}
+
+  ask — ask the user a question and WAIT for their voice answer
+    {"action":"ask","text":"¿A qué dirección te lo envío?","memory_key":"address","reason":"..."}
+    {"action":"ask","text":"¿Tienes alguna preferencia de ingredientes?","memory_key":"food_preferences","reason":"..."}
+
+  WHEN TO ASK vs EXECUTE:
+  - If the user profile already has the needed info → EXECUTE directly, don't ask again.
+  - If a key piece of info is missing AND it's critical for the task → ask ONCE, then execute.
+  - Simple tasks (play song, search, navigate) → NEVER ask, just execute.
+  - Food/delivery order → need address. If missing, ask. If present, use it directly.
+  - Login form → need email/password. If in profile, use them. If not, ask.
+  - After asking and getting answer → proceed with the task immediately.
+
+  done with voice confirmation:
+    {"action":"done","text":"Listo, he buscado pizzerías cerca de tu dirección.","reason":"..."}
+    The "text" field in done will be spoken aloud to the user.
+
+── BROWSER ACTIONS ─────────────────────────────────────────────────────────────
 
 1. USE URL NAVIGATION FIRST. Most tasks are faster and 100% reliable via URL:
    - YouTube search:  navigate → https://www.youtube.com/results?search_query=QUERY
    - Google search:   navigate → https://www.google.com/search?q=QUERY
-   - YouTube video:   navigate → https://www.youtube.com/watch?v=VIDEO_ID
+   - Food delivery:   navigate → https://www.justeat.es or https://glovoapp.com
    - If the user wants to search anything, ALWAYS use the search URL directly.
 
 2. USE JS FOR BUTTON CLICKS — always use clickEl() helper, never ?.click() alone:
@@ -55,13 +79,11 @@ PRIORITY RULES — follow in this order:
    - PASSWORD FIELDS:    const pwd = document.querySelector('input[type="password"]'); return setInput(pwd, 'PASSWORD_VALUE');
    - YouTube comment:  const box = document.querySelector('#simplebox-placeholder,#contenteditable-root,ytd-comment-simplebox-renderer'); if(box){box.click(); setTimeout(()=>{const ed=document.querySelector('#contenteditable-root'); if(ed){ed.focus(); document.execCommand('insertText',false,'TEXT');}},500);} return box?'clicked comment box':'NOT FOUND';
 
-3. NEVER repeat the same failed action. After 1 failure, switch approach completely:
-   - Click failed once? → Use JS with text selector.
-   - JS failed once? → Navigate to URL directly.
-   - Can't find element? → Use navigate with URL.
-   - YouTube ad? → ALWAYS use JS with .ytp-skip-ad-button selector first.
+3. NEVER repeat the same failed action. After 1 failure, switch approach completely.
 
 4. Return action=done ONLY when the goal is visibly achieved in the screenshot.
+   Always include a "text" field in done with a natural voice confirmation.
+
 5. Reply in the same language the user spoke.""".strip()
 
 
@@ -105,7 +127,7 @@ class ClaudeClient:
             return {"action": "wait", "reason": "Claude no configurado."}
 
         try:
-            content = self._build_content(voice_text, hand_pos, screenshot_b64, history or [])
+            content = self._build_content(voice_text, hand_pos, screenshot_b64, history or [], memory)
 
             import asyncio
             loop = asyncio.get_running_loop()
@@ -134,6 +156,7 @@ class ClaudeClient:
         hand_pos: Optional[Tuple[float, float]],
         screenshot_b64: Optional[str],
         history: list,
+        memory: Optional[str] = None,
     ) -> list:
         content = []
 
@@ -148,6 +171,8 @@ class ClaudeClient:
             })
 
         parts = []
+        if memory:
+            parts.append(f"PERFIL DEL USUARIO:\n{memory}")
         if voice_text:
             parts.append(f"OBJETIVO DEL USUARIO: {voice_text}")
         if hand_pos:

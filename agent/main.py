@@ -28,6 +28,8 @@ from websockets.server import WebSocketServerProtocol
 from voice  import VoiceListener
 from claude import ClaudeClient
 from intent import IntentClassifier
+from tts    import TTSClient
+from memory import UserMemory
 
 logger = logging.getLogger("whaip.main")
 
@@ -65,6 +67,11 @@ class AgentLoop:
         self.voice  = VoiceListener(config)
         self.claude = ClaudeClient(config)
         self.intent = IntentClassifier(config)
+        self.tts    = TTSClient(config)
+        self.memory = UserMemory()
+
+        # When agent is waiting for a voice answer to a question
+        self._waiting_for_answer = False
 
     async def setup(self) -> None:
         await self.voice.setup()
@@ -145,17 +152,53 @@ class AgentLoop:
             logger.warning("Screenshot request timed out.")
             return None
 
+    # ── Voice conversation helpers ─────────────────────────────────────────
+
+    async def say(self, text: str) -> None:
+        """Speak text and show in sidebar."""
+        logger.info("🔊 %s", text)
+        await self.broadcast({"type": "transcript", "role": "assistant", "text": text})
+        await self.tts.speak(text)
+
+    async def ask_and_wait(self, question: str, timeout: float = 15.0) -> Optional[str]:
+        """
+        Speak a question, then wait for the user's voice answer.
+        Returns the transcribed answer or None on timeout.
+        """
+        self._waiting_for_answer = True
+        await self.say(question)
+        await self.broadcast({"type": "status", "state": "listening"})
+
+        # Drain any stale transcriptions first
+        await self.voice.get_latest()
+
+        try:
+            answer = await asyncio.wait_for(
+                self.voice.listen_once(timeout=timeout),
+                timeout=timeout + 1,
+            )
+            return answer
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self._waiting_for_answer = False
+            await self.broadcast({"type": "status", "state": "thinking"})
+
     # ── Agentic task loop ─────────────────────────────────────────────────
 
     async def run_task(self, goal: str) -> None:
         """
         Run a full agentic loop for a single user goal.
         Claude acts → sees result → acts again until done or max_steps.
+        Supports ask/speak actions for conversational clarification.
         """
-        MAX_STEPS  = 8
+        MAX_STEPS  = 12
         STEP_DELAY = 1.5   # seconds between actions (let page settle)
         history    = []
         action_counter = 0
+
+        # Inject user profile so Claude knows what it already knows
+        profile = self.memory.get_profile_summary()
 
         await self.broadcast({"type": "status", "state": "thinking"})
 
@@ -167,23 +210,51 @@ class AgentLoop:
                 hand_pos=None,
                 screenshot_b64=screenshot,
                 history=history,
+                memory=profile,
             )
 
             action = cmd.get("action", "wait")
             reason = cmd.get("reason", "")
 
-            # Tag action with ID so we can match result
+            # ── Conversational actions (no browser execution) ──────────────
+
+            if action == "speak":
+                text = cmd.get("text", reason)
+                await self.say(text)
+                history.append({"action": "speak", "reason": text, "result": "dicho"})
+                continue
+
+            if action == "ask":
+                question = cmd.get("text", reason)
+                answer = await self.ask_and_wait(question)
+                if answer:
+                    logger.info("User answered: %s", answer)
+                    await self.broadcast({"type": "transcript", "role": "user", "text": answer})
+                    # Store answer in memory if Claude tagged a memory_key
+                    memory_key = cmd.get("memory_key")
+                    if memory_key:
+                        self.memory.set(memory_key, answer)
+                        profile = self.memory.get_profile_summary()
+                    history.append({
+                        "action": "ask",
+                        "reason": question,
+                        "result": f"usuario respondió: {answer}",
+                    })
+                    # Re-state the goal enriched with the answer
+                    goal = f"{goal} [{memory_key or 'info'}: {answer}]"
+                else:
+                    history.append({"action": "ask", "reason": question, "result": "sin respuesta"})
+                continue
+
+            # ── Browser actions ────────────────────────────────────────────
+
             action_counter += 1
             action_id = f"a{action_counter}"
             cmd["_id"] = action_id
 
-            # Show in sidebar
             await self.broadcast({"type": "action", **cmd})
-
-            # Wait for execution + page reaction
             await asyncio.sleep(STEP_DELAY)
 
-            # Collect result feedback if available
             result = self._action_results.pop(action_id, None)
             result_str = ""
             if result:
@@ -199,6 +270,9 @@ class AgentLoop:
             })
 
             if action == "done":
+                speak_text = cmd.get("text", "")
+                if speak_text:
+                    await self.say(speak_text)
                 logger.info("Task complete after %d steps: %s", step + 1, goal)
                 await self.broadcast({"type": "status", "state": "idle"})
                 return
@@ -207,10 +281,11 @@ class AgentLoop:
                 continue
 
         logger.warning("Task hit max_steps (%d): %s", MAX_STEPS, goal)
+        await self.say("He llegado al límite de pasos. Intenta de nuevo.")
         await self.broadcast({
             "type": "action",
             "action": "done",
-            "reason": "He llegado al límite de pasos. Intenta de nuevo.",
+            "reason": "Límite de pasos alcanzado.",
         })
         await self.broadcast({"type": "status", "state": "idle"})
 

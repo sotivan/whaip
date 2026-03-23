@@ -27,19 +27,21 @@ Raw transcription: "{transcription}"
 
 Your task: decide if this is a real user command or background audio/noise.
 
-COMMANDS (is_command=true) — any of these patterns:
-- Imperative verbs directed at the browser: pulsa, haz clic, navega, busca, abre, cierra, salta, pausa, reproduce, pon, ponme, escribe, rellena, manda, envía, descarga, sube, compra, acepta, rechaza, vuelve, avanza, retrocede, scroll, baja, sube, maximiza, minimiza, recarga
-- Search requests: "busca X", "buscar X en Y", "quiero ver X"
-- Navigation: "ve a", "abre", "navega a", "pon X en YouTube"
-- Page interaction: "pulsa el botón de X", "haz clic en X", "selecciona X", "rellena el campo X con Y"
-- Corrections/meta: "no, espera", "para", "cancela", "ignora eso", "no hagas eso", "mejor X"
-- Even if poorly transcribed: "alta el anuncio" = "salta el anuncio", "avarle" = "lavarle"
+WHAIP controls the browser to accomplish ANY task — including real-world tasks like ordering food, booking flights, sending messages, playing music. "Pídeme una pizza" means open Glovo/JustEat and order it. "Ponme una canción" means open YouTube/Spotify. "Manda un WhatsApp" means open WhatsApp Web.
 
-BACKGROUND AUDIO (is_command=false) — only if clearly NOT addressed to you:
-- Song lyrics (rhyming, musical phrasing)
-- Ad slogans or TV dialogue (third-person narrative, product names)
-- Pure noise: "en", "1, 11,", numbers only, isolated syllables
-- Clearly not a browser instruction and no plausible interpretation as one
+COMMANDS (is_command=true) — any of these patterns:
+- Imperative verbs directed at the browser or to accomplish a task: pulsa, haz, navega, busca, abre, cierra, salta, pausa, reproduce, pon, ponme, escribe, rellena, manda, envía, descarga, sube, compra, acepta, rechaza, vuelve, avanza, retrocede, scroll, recarga
+- Search requests: "busca X", "quiero ver X", "muéstrame X"
+- Navigation: "ve a", "abre", "navega a"
+- Real-world tasks via browser: "pídeme una pizza", "reserva un vuelo", "encárgame X", "ponme algo en Netflix", "busca X en Amazon"
+- Page interaction: "pulsa el botón de X", "haz clic en X", "rellena el campo X"
+- Corrections/meta: "no, espera", "para", "cancela", "ignora eso", "mejor X"
+- Even if poorly transcribed: "alta el anuncio" = "salta el anuncio"
+
+BACKGROUND AUDIO (is_command=false) — ONLY if it's clearly audio coming from speakers/browser, NOT the user talking:
+- Song lyrics (clearly rhyming, musical, not addressed to anyone)
+- TV/ad dialogue in third person (e.g. "compra ahora el nuevo iPhone..." narrated by an announcer)
+- Pure noise: isolated numbers, syllables, meaningless fragments
 
 CRITICAL RULES:
 - When in doubt → is_command=true. It's better to attempt an action than to ignore the user.
@@ -97,6 +99,11 @@ class IntentClassifier:
         "rellenar", "mandar", "descargar", "comprar", "aceptar", "rechazar",
         "volver", "recargar", "quiero", "muéstrame", "muestrame", "dime",
         "llévame", "llevame", "ir", "ve", "para", "stop", "cancela", "cancel",
+        # Real-world tasks done via browser
+        "pídeme", "pideme", "pide", "reserva", "reservar", "reservame",
+        "reservame", "pedir", "encarga", "encárgame", "encargame",
+        "consigue", "consigueme", "consígueme", "tramita", "gestiona",
+        "llama", "contacta", "agenda", "agéndame", "agendame",
     }
 
     async def classify(self, transcription: str) -> Optional[str]:
