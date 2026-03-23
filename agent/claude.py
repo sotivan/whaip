@@ -70,6 +70,11 @@ Use these BEFORE executing browser actions when you need information or want to 
 
 ── BROWSER ACTIONS ─────────────────────────────────────────────────────────────
 
+IMPORTANT: Cookie banners and YouTube ads are handled AUTOMATICALLY by the browser layer.
+You NEVER need to dismiss cookies or skip ads — they are already gone before you act.
+If you see a cookie banner in the screenshot, just ignore it and proceed with your next action.
+If a YouTube ad is playing, just proceed — it will be skipped automatically within 2 seconds.
+
 1. USE URL NAVIGATION FIRST. Most tasks are faster and 100% reliable via URL:
    - YouTube search:  navigate → https://www.youtube.com/results?search_query=QUERY
    - Google search:   navigate → https://www.google.com/search?q=QUERY

@@ -41,6 +41,7 @@ webview.addEventListener('did-navigate', e => {
   btnBack.style.opacity    = webview.canGoBack()    ? '1' : '0.35'
   btnForward.style.opacity = webview.canGoForward() ? '1' : '0.35'
   window.whaip.sendToAgent({ type: 'page:context', url: e.url, title: document.title })
+  startAutoClean(e.url)
 })
 
 webview.addEventListener('page-title-updated', e => {
@@ -61,6 +62,72 @@ webview.addEventListener('did-start-loading', () => {
   btnReload.title = 'Stop'
   btnReload.onclick = () => webview.stop()
 })
+
+// ── Auto-dismiss: cookies + ads (runs on every page load, no Claude needed) ──────
+
+const COOKIE_JS = `
+(function() {
+  // 1. Click by text (covers most sites)
+  const textRe = /aceptar|accept|허용|allow all|alle akzept|i agree|ok, acepto|acepto|got it|entendido|continuar|permitir|concordo|agree|consent/i;
+  const byText = [...document.querySelectorAll('button,[role="button"],a')].find(b => textRe.test(b.innerText));
+  if (byText) { byText.click(); return 'clicked: ' + byText.innerText.slice(0,30); }
+
+  // 2. Click by common CSS selectors (hashed class names won't match, but data-* attrs often do)
+  const sel = [
+    '[data-testid*="accept"]','[data-testid*="cookie"]','[data-testid*="consent"]',
+    '[id*="accept"]','[id*="cookie"]','[id*="consent"]','[id*="gdpr"]',
+    '[class*="accept-btn"]','[class*="cookie-btn"]','[class*="consent-btn"]',
+  ].join(',');
+  const byAttr = document.querySelector(sel);
+  if (byAttr) { byAttr.click(); return 'clicked attr: ' + byAttr.id; }
+
+  // 3. Nuclear: remove fixed/sticky overlays with high z-index that block the page
+  let removed = 0;
+  document.querySelectorAll('*').forEach(el => {
+    try {
+      const s = window.getComputedStyle(el);
+      const z = parseInt(s.zIndex) || 0;
+      if ((s.position === 'fixed' || s.position === 'sticky') && z > 999 && el.offsetHeight > 80) {
+        el.remove(); removed++;
+      }
+    } catch(e) {}
+  });
+  document.body.style.overflow = '';
+  document.documentElement.style.overflow = '';
+  if (removed) return 'nuked ' + removed + ' overlay(s)';
+  return 'no banner found';
+})()
+`
+
+const YOUTUBE_AD_JS = `
+(function() {
+  // Skip button
+  const skip = document.querySelector('.ytp-skip-ad-button,.ytp-ad-skip-button-slot button,[class*="skip-ad"]');
+  if (skip) { skip.click(); return 'skipped ad'; }
+  // Close overlay ad
+  const close = document.querySelector('.ytp-ad-overlay-close-button');
+  if (close) { close.click(); return 'closed overlay'; }
+  return null;
+})()
+`
+
+let _adInterval = null
+
+function startAutoClean(url) {
+  // Cookies: fire at 1s and 3s after load (some banners load late)
+  setTimeout(() => webview.executeJavaScript(COOKIE_JS).catch(() => {}), 1000)
+  setTimeout(() => webview.executeJavaScript(COOKIE_JS).catch(() => {}), 3000)
+
+  // YouTube ads: poll every 2s
+  if (_adInterval) clearInterval(_adInterval)
+  if (url && url.includes('youtube.com')) {
+    _adInterval = setInterval(() => {
+      webview.executeJavaScript(YOUTUBE_AD_JS).catch(() => {})
+    }, 2000)
+  } else {
+    _adInterval = null
+  }
+}
 
 webview.addEventListener('did-stop-loading', () => {
   btnReload.textContent = '⟳'
