@@ -79,9 +79,31 @@ async function executeAction(cmd) {
 
 function handleJS(code) {
   if (!code) return
-  console.log('[whaip] executing JS:', code.slice(0, 120))
-  webview.executeJavaScript(code).catch(err => {
-    console.error('[whaip] JS execution error:', err.message)
+  console.log('[whaip] executing JS:', code.slice(0, 200))
+
+  // Inject a helper so Claude-generated code can set React/Vue inputs reliably
+  const wrapped = `
+    (function() {
+      function setInput(el, value) {
+        if (!el) return false;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+        if (setter) setter.set.call(el, value);
+        else el.value = value;
+        el.dispatchEvent(new Event('input',  { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }
+      function pressEnter(el) {
+        if (!el) return;
+        el.dispatchEvent(new KeyboardEvent('keydown',  { key:'Enter', keyCode:13, bubbles:true }));
+        el.dispatchEvent(new KeyboardEvent('keypress', { key:'Enter', keyCode:13, bubbles:true }));
+        el.dispatchEvent(new KeyboardEvent('keyup',    { key:'Enter', keyCode:13, bubbles:true }));
+      }
+      ${code}
+    })()
+  `
+  webview.executeJavaScript(wrapped).catch(err => {
+    console.error('[whaip] JS error:', err.message)
   })
 }
 

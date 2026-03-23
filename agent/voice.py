@@ -39,10 +39,10 @@ DTYPE          = "float32"
 BLOCK_SAMPLES  = 480             # 30 ms per sounddevice callback block
 
 # ── VAD constants ──────────────────────────────────────────────────────────
-RMS_THRESHOLD      = 0.012       # below → silence
-SPEECH_ONSET_BLOCKS = 3          # consecutive loud blocks to start recording
-SILENCE_END_BLOCKS  = 30         # ~0.9 s of silence to end utterance
-MIN_SPEECH_BLOCKS   = 10         # ~0.3 s minimum to avoid transcribing noise
+RMS_THRESHOLD      = 0.035       # below → silence (higher = less background noise)
+SPEECH_ONSET_BLOCKS = 4          # consecutive loud blocks to start recording
+SILENCE_END_BLOCKS  = 25         # ~0.75 s of silence to end utterance
+MIN_SPEECH_BLOCKS   = 15         # ~0.45 s minimum to avoid transcribing noise
 
 
 class VoiceListener:
@@ -245,12 +245,28 @@ class VoiceListener:
             )
             text = result.get("text", "").strip().lower()
 
-            # Discard Whisper hallucinations on silence
+            # Discard known Whisper hallucinations
             _HALLUCINATIONS = {
                 "", "you", "thank you", "thanks", "thank you.",
-                "gracias", ".", "...", " ",
+                "gracias", ".", "...", " ", "subtítulos realizados por la comunidad de amara.org",
+                "suscríbete al canal", "www.", "sub"
             }
-            return "" if text in _HALLUCINATIONS else text
+            if text in _HALLUCINATIONS:
+                return ""
+
+            # Reject if >30% of characters are non-Latin/non-Spanish
+            # (Whisper hallucinates cyrillic/chinese on noise)
+            import unicodedata
+            non_latin = sum(
+                1 for c in text
+                if unicodedata.category(c).startswith('L')
+                and ord(c) > 0x024F  # outside basic Latin + Latin extended
+            )
+            if len(text) > 0 and non_latin / len(text) > 0.15:
+                logger.debug("Rejected hallucination (non-latin chars): %s", text[:60])
+                return ""
+
+            return text
         except Exception as exc:
             logger.error("Transcription error: %s", exc)
             return ""

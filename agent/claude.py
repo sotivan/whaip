@@ -39,11 +39,15 @@ Rules:
 - For navigation: action=navigate, text=full URL.
 - For clicking a button/link: action=click, x/y=coordinates, text=visible label.
 - For typing: action=type, text=what to type.
-- Use action=js when standard actions are unreliable or insufficient. Write complete JavaScript that accomplishes the task directly — find elements by selector, fill inputs, click buttons, submit forms, etc. Examples:
-    • Search on YouTube: document.querySelector('input#search').value='duki'; document.querySelector('button#search-icon-legacy').click()
-    • Accept cookies: document.querySelector('button[aria-label*="Accept"]')?.click()
-    • Fill a form field: document.querySelector('input[name="q"]').value='hello'; document.querySelector('form').submit()
-- ALWAYS prefer js over repeated failed clicks.
+- Use action=js when standard actions are unreliable or insufficient.
+  Two helpers are available in your JS code: setInput(el, value) and pressEnter(el).
+  Always use setInput() to fill text fields — it works on React/Vue/Angular sites.
+  Examples:
+    • YouTube search: const inp = document.querySelector('input#search'); setInput(inp, 'duki'); pressEnter(inp);
+    • Accept cookies: document.querySelector('button[aria-label*="cept"]')?.click() || [...document.querySelectorAll('button')].find(b=>b.innerText.includes('Aceptar'))?.click()
+    • Google search: const q = document.querySelector('input[name="q"]'); setInput(q, 'duki'); pressEnter(q);
+    • Click by text: [...document.querySelectorAll('button,a')].find(e=>e.innerText.includes('TEXT'))?.click()
+- ALWAYS use js when a click has already failed once. Do not repeat the same click action.
 - NEVER include markdown fences or any text outside the JSON object.
 - Reply in the same language the user speaks.""".strip()
 
