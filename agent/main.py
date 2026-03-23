@@ -27,6 +27,7 @@ from websockets.server import WebSocketServerProtocol
 
 from voice  import VoiceListener
 from claude import ClaudeClient
+from intent import IntentClassifier
 
 logger = logging.getLogger("whaip.main")
 
@@ -63,10 +64,12 @@ class AgentLoop:
 
         self.voice  = VoiceListener(config)
         self.claude = ClaudeClient(config)
+        self.intent = IntentClassifier(config)
 
     async def setup(self) -> None:
         await self.voice.setup()
         self.claude.setup()
+        self.intent.setup()
 
     async def teardown(self) -> None:
         await self.voice.teardown()
@@ -108,6 +111,12 @@ class AgentLoop:
 
         elif msg_type == "mic:toggle":
             self.voice.set_active(data.get("active", True))
+
+        elif msg_type == "page:context":
+            self.intent.update_context(
+                url=data.get("url", ""),
+                title=data.get("title", ""),
+            )
 
         elif msg_type == "action:result":
             action_id = data.get("action_id")
@@ -208,13 +217,18 @@ class AgentLoop:
     # ── Main tick ─────────────────────────────────────────────────────────
 
     async def tick(self) -> None:
-        text = await self.voice.get_latest()
-        if not text:
+        raw = await self.voice.get_latest()
+        if not raw:
             return
 
-        # New voice command → cancel whatever is running
+        # ── Intent classification: is this a real command? ──
+        intent = await self.intent.classify(raw)
+        if not intent:
+            logger.debug("Discarded (not a command): %s", raw[:60])
+            return
+
+        # New command → cancel whatever is running
         if self._current_task and not self._current_task.done():
-            logger.info("New command received, cancelling current task.")
             self._current_task.cancel()
             try:
                 await self._current_task
@@ -222,11 +236,9 @@ class AgentLoop:
                 pass
             await self.broadcast({"type": "status", "state": "idle"})
 
-        logger.info("Voice goal: %s", text)
-        await self.broadcast({"type": "transcript", "role": "user", "text": text})
-
-        # Run task in background so tick() returns immediately
-        self._current_task = asyncio.create_task(self.run_task(text))
+        logger.info("Command: %s", intent)
+        await self.broadcast({"type": "transcript", "role": "user", "text": intent})
+        self._current_task = asyncio.create_task(self.run_task(intent))
 
     async def run(self) -> None:
         self.running = True

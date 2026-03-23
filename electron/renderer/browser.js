@@ -40,6 +40,11 @@ webview.addEventListener('did-navigate', e => {
   addressBar.value = e.url
   btnBack.style.opacity    = webview.canGoBack()    ? '1' : '0.35'
   btnForward.style.opacity = webview.canGoForward() ? '1' : '0.35'
+  window.whaip.sendToAgent({ type: 'page:context', url: e.url, title: document.title })
+})
+
+webview.addEventListener('page-title-updated', e => {
+  window.whaip.sendToAgent({ type: 'page:context', url: webview.src, title: e.title })
 })
 
 webview.addEventListener('did-navigate-in-page', e => {
@@ -48,6 +53,7 @@ webview.addEventListener('did-navigate-in-page', e => {
 
 webview.addEventListener('page-title-updated', e => {
   document.title = `${e.title} — WHAIP`
+  window.whaip.sendToAgent({ type: 'page:context', url: webview.src, title: e.title })
 })
 
 webview.addEventListener('did-start-loading', () => {
