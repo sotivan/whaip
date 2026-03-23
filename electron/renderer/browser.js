@@ -194,7 +194,15 @@ const AGENT_HELPERS = `
     return 'typed only — no suggestion found for: "' + value + '"';
   }
   function clickEl(sel) {
-    const el = typeof sel === 'string' ? document.querySelector(sel) : sel;
+    let el;
+    if (typeof sel === 'string') {
+      try { el = document.querySelector(sel); }
+      catch(e) {
+        // Invalid CSS selector (e.g. React IDs with / = + : chars) — try getElementById
+        const m = sel.match(/^#(.+)$/);
+        if (m) el = document.getElementById(m[1]);
+      }
+    } else { el = sel; }
     if (!el) {
       const avail = [...document.querySelectorAll('button,[role="button"],a,pie-button')]
         .map(b => (b.id||b.className||b.innerText||b.tagName||'').slice(0,30)).filter(Boolean).slice(0,8).join(' | ');

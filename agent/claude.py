@@ -225,9 +225,13 @@ class ClaudeClient:
             response = await loop.run_in_executor(
                 None,
                 lambda: self._client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=1500,
-                    system=SYSTEM_PROMPT,
+                    model="claude-haiku-4-5-20251001",   # 12× cheaper + faster than Sonnet
+                    max_tokens=1200,
+                    system=[{
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},  # cache system prompt (~3000 tokens)
+                    }],
                     messages=[{"role": "user", "content": content}],
                 ),
             )

@@ -375,10 +375,13 @@ class AgentLoop:
 
         await self.broadcast({"type": "status", "state": "thinking"})
 
+        need_screenshot = True   # take on round 0 and after navigate/script
+
         for round_n in range(MAX_ROUNDS):
 
             dom_snapshot = await self.request_dom_snapshot()
-            screenshot   = await self.request_screenshot()   # always: Claude needs to see to plan
+            screenshot   = await self.request_screenshot() if need_screenshot else None
+            need_screenshot = False   # reset; set again after navigate/script
 
             cmd    = await self.claude.decide(
                 voice_text   = goal,
@@ -440,10 +443,12 @@ class AgentLoop:
 
             if action == "script":
                 result = await self._wait_for_action_result(action_id, timeout=90.0)
+                need_screenshot = True   # see final state after script
             elif action == "navigate":
                 result = await self._wait_for_action_result(action_id, timeout=12.0)
                 await asyncio.sleep(0.4)
                 result = self._action_results.pop(action_id, result)
+                need_screenshot = True   # see where we landed
             else:
                 await asyncio.sleep(1.2)
                 result = self._action_results.pop(action_id, None)
