@@ -144,32 +144,88 @@ function handleJS(code, actionId) {
     })
 }
 
-function handleClick(x, y, buttonText) {
-  // If a button label is known, try to find it by text first (more reliable than coords)
-  const textScript = buttonText ? `
-    (function() {
-      const text = ${JSON.stringify(buttonText)}.toLowerCase();
-      const candidates = [...document.querySelectorAll('button, [role="button"], a, input[type="submit"]')];
-      const el = candidates.find(e => e.textContent.trim().toLowerCase().includes(text));
-      if (el) { el.click(); return true; }
-      return false;
-    })()
-  ` : 'false'
+// ── AI cursor ─────────────────────────────────────────────────────────────────
 
-  webview.executeJavaScript(textScript).then(found => {
-    if (found) return
-    // Fallback to coordinates
-    webview.executeJavaScript(`
+const aiCursor      = document.getElementById('ai-cursor')
+const aiCursorPulse = document.getElementById('ai-cursor-pulse')
+
+function showAICursor(x, y) {
+  // x, y are webview-relative coords — offset by webview's position in layout
+  const rect = webview.getBoundingClientRect()
+  const absX  = rect.left + x
+  const absY  = rect.top  + y
+  aiCursor.style.display = 'block'
+  aiCursor.style.left    = absX + 'px'
+  aiCursor.style.top     = absY + 'px'
+}
+
+function pulseAICursor() {
+  if (!aiCursorPulse) return
+  aiCursorPulse.style.transition = 'none'
+  aiCursorPulse.style.opacity    = '0.8'
+  aiCursorPulse.style.r          = '6'
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      aiCursorPulse.style.transition = 'all 0.5s ease-out'
+      aiCursorPulse.style.opacity    = '0'
+    })
+  })
+}
+
+function hideAICursor() {
+  setTimeout(() => { aiCursor.style.display = 'none' }, 600)
+}
+
+// ── Click handler — real Chromium input events + AI cursor ────────────────────
+
+function handleClick(x, y, buttonText) {
+  // Step 1: move cursor visually
+  showAICursor(x, y)
+
+  // Step 2: wait for CSS transition (250ms), then click
+  setTimeout(() => {
+    pulseAICursor()
+
+    // Try JS text-match first (most reliable for known button labels)
+    const textScript = buttonText ? `
       (function() {
-        const el = document.elementFromPoint(${x}, ${y});
+        const text = ${JSON.stringify(buttonText)}.toLowerCase();
+        const el = [...document.querySelectorAll('button,[role="button"],a,input[type="submit"]')]
+          .find(e => e.textContent.trim().toLowerCase().includes(text));
         if (el) {
-          el.dispatchEvent(new MouseEvent('mousedown', { bubbles:true, clientX:${x}, clientY:${y} }));
-          el.dispatchEvent(new MouseEvent('mouseup',   { bubbles:true, clientX:${x}, clientY:${y} }));
+          const r = el.getBoundingClientRect();
           el.click();
+          return JSON.stringify({found:true, x: Math.round(r.left+r.width/2), y: Math.round(r.top+r.height/2)});
         }
+        return JSON.stringify({found:false});
       })()
-    `).catch(console.error)
-  }).catch(console.error)
+    ` : 'JSON.stringify({found:false})'
+
+    webview.executeJavaScript(textScript).then(raw => {
+      const res = JSON.parse(raw)
+      if (res.found) {
+        // Update cursor to actual element position
+        if (res.x && res.y) showAICursor(res.x, res.y)
+        hideAICursor()
+        return
+      }
+
+      // Step 3: real Chromium mouse events at coordinates (bypasses JS sandbox — works on overlays)
+      webview.sendInputEvent({ type: 'mouseMoved', x, y })
+      setTimeout(() => {
+        webview.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+        webview.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 })
+        hideAICursor()
+      }, 50)
+
+    }).catch(() => {
+      // Fallback: real events anyway
+      webview.sendInputEvent({ type: 'mouseMoved', x, y })
+      webview.sendInputEvent({ type: 'mouseDown',  x, y, button: 'left', clickCount: 1 })
+      webview.sendInputEvent({ type: 'mouseUp',    x, y, button: 'left', clickCount: 1 })
+      hideAICursor()
+    })
+  }, 260)
 }
 
 function handleType(text) {

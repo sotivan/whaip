@@ -37,6 +37,23 @@
 
       <!-- Hand cursor overlay -->
       <canvas id="hand-overlay"></canvas>
+
+      <!-- AI agent cursor — shows where the agent is clicking -->
+      <div id="ai-cursor" style="
+        display:none;
+        position:absolute;
+        width:28px; height:28px;
+        pointer-events:none;
+        z-index:9999;
+        transition: left 0.25s cubic-bezier(.4,0,.2,1), top 0.25s cubic-bezier(.4,0,.2,1);
+        transform: translate(-4px, -4px);
+      ">
+        <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="14" cy="14" r="13" fill="#6366f1" fill-opacity="0.15" stroke="#6366f1" stroke-width="1.5"/>
+          <circle cx="14" cy="14" r="4" fill="#6366f1"/>
+          <circle id="ai-cursor-pulse" cx="14" cy="14" r="10" fill="none" stroke="#6366f1" stroke-width="1.5" opacity="0"/>
+        </svg>
+      </div>
     </section>
 
     <!-- AI sidebar -->
