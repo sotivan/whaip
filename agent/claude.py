@@ -76,23 +76,45 @@ Use these BEFORE executing browser actions when you need information or want to 
    - Food delivery:   navigate → https://www.justeat.es or https://glovoapp.com
    - If the user wants to search anything, ALWAYS use the search URL directly.
 
-2. USE JS FOR BUTTON CLICKS — always use clickEl() helper, never ?.click() alone:
+2. COOKIE BANNERS — dismiss FIRST before any other action on a new page:
+   Use this exact JS (tries everything in order, last resort removes the overlay):
+   return (function(){
+     // 1. Click by CSS class (most reliable — use classes from "visible buttons" diagnostic)
+     const byClass = document.querySelector('[class*="modal-alert__actions__bt"],[class*="cookie-accept"],[class*="accept-all"],[class*="btn-accept"],[class*="agree"],[class*="consent-accept"],[id*="accept"],[id*="cookie"]');
+     if(byClass){byClass.click();return 'clicked class: '+byClass.className.slice(0,60);}
+     // 2. Click by button text
+     const texts=/aceptar|accept all|accepter|alle akzept|i agree|ok, acepto|acepto|got it|entendido|continuar|permitir|allow all/i;
+     const byText=[...document.querySelectorAll('button,[role="button"],a')].find(b=>texts.test(b.innerText));
+     if(byText){byText.click();return 'clicked text: '+byText.innerText.slice(0,40);}
+     // 3. Look inside iframes
+     for(const fr of document.querySelectorAll('iframe')){try{const d=fr.contentDocument;if(!d)continue;const b=d.querySelector('button,[role="button"]');if(b&&texts.test(b.innerText)){b.click();return 'iframe click: '+b.innerText.slice(0,40);}}catch(e){}}
+     // 4. Nuclear — hide all overlay/modal elements and re-enable scroll
+     let removed=0;
+     document.querySelectorAll('[class*="cookie"],[class*="consent"],[class*="gdpr"],[class*="overlay"],[class*="modal"],[id*="cookie"],[id*="consent"],[id*="gdpr"]').forEach(el=>{el.style.display='none';removed++;});
+     document.body.style.overflow='';document.documentElement.style.overflow='';
+     if(removed)return 'nuked '+removed+' overlay elements';
+     return 'no cookie banner found';
+   })()
+
+3. USE JS FOR BUTTON CLICKS — always use clickEl() helper, never ?.click() alone:
    - Skip YouTube ad:  return clickEl('.ytp-skip-ad-button') || clickEl('.ytp-ad-skip-button-slot button') || clickEl('[class*="skip-ad"]')
-   - Accept cookies:   return clickEl([...document.querySelectorAll('button')].find(b=>/aceptar|accept/i.test(b.innerText)))
    - Click by text:    return clickEl([...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText)))
-   - IMPORTANT: clickEl() returns "NOT FOUND: ... visible buttons: X|Y|Z" if element missing.
-     If result says NOT FOUND, read the visible buttons list and use the correct selector next time.
+   - IMPORTANT: clickEl() returns "NOT FOUND: ... visible buttons: CLASS1|CLASS2|..." if element missing.
+     READ the class names in that list — they are the REAL CSS classes you can target directly.
+     Example: if list shows "btn btn-primary modal-alert__actions__bt", use: document.querySelector('.modal-alert__actions__bt')
    - Use setInput(el, value) + pressEnter(el) for text inputs. Both return status strings.
    - EMAIL/LOGIN FIELDS: const email = document.querySelector('input[type="email"],input[name*="email"],input[name*="mail"],input[id*="email"],input[placeholder*="email" i],input[placeholder*="correo" i]'); return setInput(email, 'EMAIL_VALUE');
    - PASSWORD FIELDS:    const pwd = document.querySelector('input[type="password"]'); return setInput(pwd, 'PASSWORD_VALUE');
    - YouTube comment:  const box = document.querySelector('#simplebox-placeholder,#contenteditable-root,ytd-comment-simplebox-renderer'); if(box){box.click(); setTimeout(()=>{const ed=document.querySelector('#contenteditable-root'); if(ed){ed.focus(); document.execCommand('insertText',false,'TEXT');}},500);} return box?'clicked comment box':'NOT FOUND';
 
-3. NEVER repeat the same failed action. After 1 failure, switch approach completely.
+4. NEVER repeat the same failed action. After 1 failure, switch approach completely.
+   - Cookie banner failed with text selector? → Use the nuclear JS above immediately.
+   - Cookie banner nuclear JS ran? → Assume dismissed, proceed with the task.
 
-4. Return action=done ONLY when the goal is visibly achieved in the screenshot.
+5. Return action=done ONLY when the goal is visibly achieved in the screenshot.
    Always include a "text" field in done with a natural voice confirmation.
 
-5. Reply in the same language the user spoke.""".strip()
+6. Reply in the same language the user spoke.""".strip()
 
 
 class ClaudeClient:
