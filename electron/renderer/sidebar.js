@@ -66,14 +66,21 @@ function escapeHtml(str) {
 // ── Mic toggle ────────────────────────────────────────────────────────────────
 
 let micActive = false
+const micStatusText = document.getElementById('mic-status-text')
 
-btnMicToggle.addEventListener('click', () => {
-  micActive = !micActive
-  btnMicToggle.textContent = micActive ? '⏹ Detener' : '🎤 Escuchar'
-  btnMicToggle.classList.toggle('active', micActive)
-  setAgentStatus(micActive ? 'listening' : 'idle')
-  window.whaip.sendToAgent({ type: 'mic:toggle', active: micActive })
-})
+function setMicState(active) {
+  micActive = active
+  btnMicToggle.textContent      = active ? '⏹ Pausar' : '🎤 Activar'
+  btnMicToggle.classList.toggle('mic-on', active)
+  setAgentStatus(active ? 'listening' : 'idle')
+  if (micStatusText) {
+    micStatusText.textContent = active ? '🟢 Escuchando…' : 'Micrófono inactivo — pulsa Activar'
+    micStatusText.style.color = active ? '#22c55e' : 'var(--color-muted)'
+  }
+  window.whaip.sendToAgent({ type: 'mic:toggle', active })
+}
+
+btnMicToggle.addEventListener('click', () => setMicState(!micActive))
 
 // ── WS connection badge ───────────────────────────────────────────────────────
 
@@ -94,7 +101,7 @@ window.whaip.onAgentMessage(data => {
       break
     case 'transcript':
       appendTranscript(data.role, data.text)
-      openSidebar()
+      openSidebar()   // auto-open when agent starts talking
       break
     case 'action':
       if (data.reason) appendTranscript('agent', data.reason)
@@ -105,7 +112,6 @@ window.whaip.onAgentMessage(data => {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 ;(function init() {
-  openSidebar()
+  closeSidebar()          // sidebar closed until there's activity
   setAgentStatus('idle')
-  appendTranscript('agent', 'Hola. Di algo o señala con tu dedo para empezar.')
 })()

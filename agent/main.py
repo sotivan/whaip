@@ -438,6 +438,7 @@ class AgentLoop:
 
     async def run(self) -> None:
         self.running = True
+        self.voice.set_active(False)   # mic OFF until user presses the button
         interval = self.config.get("agent", {}).get("loop_interval_ms", 200) / 1000
         while self.running:
             try:
