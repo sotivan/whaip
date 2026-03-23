@@ -39,6 +39,10 @@ function createTab(url) {
   _tabs.push(tab)
   renderTabs()
   switchTab(id)
+  // Show start screen for new tabs (not the very first one — that's shown from HTML)
+  if (_tabs.length > 1) {
+    window.dispatchEvent(new CustomEvent('whaip:newtab'))
+  }
   return tab
 }
 
@@ -50,6 +54,13 @@ function switchTab(id) {
     t.webview.style.display = t.id === id ? 'block' : 'none'
   })
   renderTabs()
+
+  // Hide start screen when switching to an active browsing tab
+  const switching = _tabs.find(t => t.id === id)
+  if (switching && switching.url && !switching.url.startsWith('https://www.google.com') &&
+      switching.url !== 'about:blank' && typeof window.hideStartScreen === 'function') {
+    window.hideStartScreen()
+  }
 
   // Update shared UI
   const t = _tabs.find(t => t.id === id)

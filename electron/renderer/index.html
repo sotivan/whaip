@@ -22,9 +22,27 @@
     </div>
 
     <div id="topbar-actions">
-      <button id="btn-mic-toggle" title="Activar / pausar micrófono">🎤 Activar</button>
-      <button id="btn-bookmark" title="Guardar marcador (Cmd+D)">⭐</button>
-      <button id="btn-sidebar-toggle" title="Toggle AI sidebar">AI</button>
+      <!-- Mic -->
+      <button id="btn-mic-toggle" title="Activar / pausar micrófono">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 10a7 7 0 0 0 14 0"/>
+          <line x1="12" y1="17" x2="12" y2="22"/>
+          <line x1="8" y1="22" x2="16" y2="22"/>
+        </svg>
+      </button>
+      <!-- Bookmark -->
+      <button id="btn-bookmark" title="Guardar marcador (Cmd+D)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+          <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+        </svg>
+      </button>
+      <!-- AI sidebar -->
+      <button id="btn-sidebar-toggle" title="Toggle AI sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
@@ -47,6 +65,44 @@
                src="https://www.google.com"
                allowpopups
                webpreferences="contextIsolation=yes"></webview>
+
+      <!-- ── Start screen ──────────────────────────────────────────────────────── -->
+      <div id="start-screen">
+        <!-- Settings (3 dots) -->
+        <button id="start-settings-btn" title="Configuración">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>
+          </svg>
+        </button>
+        <div id="start-settings-panel" class="ss-hidden">
+          <div class="ss-panel-title">Apariencia</div>
+          <label class="ss-setting-row">
+            <span>Tema oscuro</span>
+            <label class="ss-toggle"><input type="checkbox" id="theme-toggle" checked><span class="ss-slider"></span></label>
+          </label>
+        </div>
+
+        <!-- Center content -->
+        <div id="start-content">
+          <p id="start-greeting">¿Qué hacemos hoy<span id="start-name"></span>?</p>
+
+          <div id="start-mic-wrap">
+            <span class="ss-ring ss-ring-3"></span>
+            <span class="ss-ring ss-ring-2"></span>
+            <span class="ss-ring ss-ring-1"></span>
+            <button id="start-mic-btn" aria-label="Comenzar sesión">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="34" height="34">
+                <rect x="9" y="2" width="6" height="12" rx="3"/>
+                <path d="M5 10a7 7 0 0 0 14 0"/>
+                <line x1="12" y1="17" x2="12" y2="22"/>
+                <line x1="8" y1="22" x2="16" y2="22"/>
+              </svg>
+            </button>
+          </div>
+
+          <span id="start-hint">Pulsa para comenzar</span>
+        </div>
+      </div>
 
       <!-- Hand cursor overlay -->
       <canvas id="hand-overlay"></canvas>
@@ -97,5 +153,6 @@
   <script src="browser.js"></script>
   <script src="sidebar.js"></script>
   <script src="bookmarks-bar.js"></script>
+  <script src="start-screen.js"></script>
 </body>
 </html>

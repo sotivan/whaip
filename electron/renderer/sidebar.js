@@ -70,8 +70,8 @@ const micStatusText = document.getElementById('mic-status-text')
 
 function setMicState(active) {
   micActive = active
-  btnMicToggle.textContent      = active ? '⏹ Pausar' : '🎤 Activar'
   btnMicToggle.classList.toggle('mic-on', active)
+  btnMicToggle.title = active ? 'Pausar micrófono' : 'Activar micrófono'
   setAgentStatus(active ? 'listening' : 'idle')
   if (micStatusText) {
     micStatusText.textContent = active ? '🟢 Escuchando…' : 'Micrófono inactivo — pulsa Activar'

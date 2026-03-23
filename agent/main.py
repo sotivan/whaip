@@ -390,6 +390,11 @@ class AgentLoop:
             "bookmarks": self.memory.get_bookmarks(),
         })
 
+    async def _push_profile(self) -> None:
+        """Send user's name to Electron for the start screen."""
+        name = self.memory.get("name") or ""
+        await self.broadcast({"type": "profile:name", "name": name})
+
     async def ask_and_wait(self, question: str, timeout: float = 15.0) -> Optional[str]:
         """
         Speak a question, then wait for the user's voice answer.
@@ -628,6 +633,7 @@ class AgentLoop:
             self._onboarding_done = True
             asyncio.create_task(self._run_onboarding())
         asyncio.create_task(self._push_bookmarks())
+        asyncio.create_task(self._push_profile())
 
         while self.running:
             try:
