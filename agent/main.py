@@ -142,6 +142,21 @@ class AgentLoop:
                     data.get("error", data.get("result", "")),
                 )
 
+        elif msg_type == "script:result":
+            script_id = data.get("script_id")
+            if script_id:
+                self._action_results[script_id] = data
+                if data.get("ok"):
+                    logger.info("Script [%s]: ✓ %s | %s", script_id, data.get("result", ""), data.get("url", ""))
+                else:
+                    logger.warning("Script [%s]: ✗ step %s (%s): %s",
+                                   script_id, data.get("failed_step"), data.get("failed_desc"), data.get("error"))
+
+        elif msg_type == "script:speak":
+            text = data.get("text", "")
+            if text:
+                asyncio.create_task(self.say(text))
+
     # ── Wait for a specific action result ────────────────────────────────
 
     async def _wait_for_action_result(self, action_id: str, timeout: float = 12.0) -> Optional[dict]:
@@ -279,146 +294,110 @@ class AgentLoop:
 
     async def run_task(self, goal: str) -> None:
         """
-        Run a full agentic loop for a single user goal.
-        Claude acts → sees result → acts again until done or max_steps.
-        Supports ask/speak actions for conversational clarification.
-        """
-        MAX_STEPS  = 12
-        STEP_DELAY = 1.2   # seconds between actions (let page settle)
-        history    = []
-        action_counter = 0
-        last_action    = None
+        Agentic loop: Claude plans → browser executes → re-plan if needed.
 
-        # Inject user profile so Claude knows what it already knows
-        profile = self.memory.get_profile_summary()
+        Architecture:
+          - Claude returns either a `script` (multi-step plan) or a single action.
+          - Scripts run entirely in the browser without API round-trips between steps.
+          - On script failure, Claude re-plans with the failure context.
+          - Max MAX_ROUNDS planning calls per task (not individual steps).
+        """
+        MAX_ROUNDS = 5       # max Claude calls per task
+        profile    = self.memory.get_profile_summary()
+        history    : list    = []
+        round_n    = 0
 
         await self.broadcast({"type": "status", "state": "thinking"})
 
-        for step in range(MAX_STEPS):
-            # DOM snapshot: always (cheap JS, text-only context for Claude)
+        for round_n in range(MAX_ROUNDS):
+
             dom_snapshot = await self.request_dom_snapshot()
+            screenshot   = await self.request_screenshot()   # always: Claude needs to see to plan
 
-            # Screenshot: only after navigation or every 5 steps (expensive vision)
-            _VISUAL_ACTIONS = {None, "navigate", "scroll"}
-            need_screenshot = (last_action in _VISUAL_ACTIONS) or (step % 5 == 0)
-            screenshot = await self.request_screenshot() if need_screenshot else None
-
-            cmd = await self.claude.decide(
-                voice_text=goal,
-                hand_pos=None,
-                screenshot_b64=screenshot,
-                dom_snapshot=dom_snapshot,
-                history=history,
-                memory=profile,
+            cmd    = await self.claude.decide(
+                voice_text   = goal,
+                hand_pos     = None,
+                screenshot_b64 = screenshot,
+                dom_snapshot = dom_snapshot,
+                history      = history,
+                memory       = profile,
             )
-
             action = cmd.get("action", "wait")
             reason = cmd.get("reason", "")
 
-            # ── Conversational actions (no browser execution) ──────────────
+            # ── Conversational / meta ──────────────────────────────────────
 
-            if action == "set_voice":
-                voice_id = cmd.get("voice_id", "")
-                if voice_id:
-                    self.tts.set_voice(voice_id)
-                confirm = cmd.get("text", "Voz cambiada.")
-                await self.say(confirm)
-                history.append({"action": "set_voice", "reason": reason, "result": "ok"})
-                continue
+            if action == "done":
+                if cmd.get("text"):
+                    await self.say(cmd["text"])
+                logger.info("Task done after %d rounds: %s", round_n + 1, goal)
+                await self.broadcast({"type": "status", "state": "idle"})
+                return
 
             if action == "speak":
-                text = cmd.get("text", reason)
-                await self.say(text)
-                history.append({"action": "speak", "reason": text, "result": "dicho"})
+                await self.say(cmd.get("text", reason))
+                history.append({"action": "speak", "reason": reason, "result": "dicho"})
                 continue
 
             if action == "ask":
                 question = cmd.get("text", reason)
-                answer = await self.ask_and_wait(question)
+                answer   = await self.ask_and_wait(question)
+                key      = cmd.get("memory_key")
                 if answer:
-                    logger.info("User answered: %s", answer)
                     await self.broadcast({"type": "transcript", "role": "user", "text": answer})
-                    # Store answer in memory if Claude tagged a memory_key
-                    memory_key = cmd.get("memory_key")
-                    if memory_key:
-                        self.memory.set(memory_key, answer)
+                    if key:
+                        self.memory.set(key, answer)
                         profile = self.memory.get_profile_summary()
-                    history.append({
-                        "action": "ask",
-                        "reason": question,
-                        "result": f"usuario respondió: {answer}",
-                    })
-                    # Re-state the goal enriched with the answer
-                    goal = f"{goal} [{memory_key or 'info'}: {answer}]"
-                else:
-                    history.append({"action": "ask", "reason": question, "result": "sin respuesta"})
+                    goal = f"{goal} [{key or 'info'}: {answer}]"
+                history.append({"action": "ask", "reason": question,
+                                 "result": f"answered: {answer or 'no answer'}"})
                 continue
 
-            # ── Loop detection: same action 3× in a row → force escape ────
-            if len(history) >= 3:
-                last3 = [h["action"] for h in history[-3:]]
-                if len(set(last3)) == 1 and last3[0] in ("click", "js", "wait", "navigate"):
-                    escape = (
-                        f" [⚠️ BUCLE: llevas {len(last3)} pasos repitiendo '{last3[0]}' "
-                        f"sin avanzar. Cambia COMPLETAMENTE de estrategia: "
-                        f"usa navigate a una URL directa, o JS nuclear para quitar overlays, "
-                        f"o declara done si el objetivo ya no es alcanzable.]"
-                    )
-                    if escape not in goal:
-                        goal = goal + escape
-                        logger.warning("Loop detected (%s ×3) — injecting escape hint", last3[0])
-
-            # ── Browser actions ────────────────────────────────────────────
-
-            action_counter += 1
-            action_id = f"a{action_counter}"
-            cmd["_id"] = action_id
-
-            await self.broadcast({"type": "action", **cmd})
-
-            # For navigate: wait for did-finish-load result (up to 12s), then short settle
-            # For everything else: fixed step delay
-            if action == "navigate":
-                await self._wait_for_action_result(action_id, timeout=12.0)
-                await asyncio.sleep(0.5)   # brief settle after page load
-            else:
-                await asyncio.sleep(STEP_DELAY)
-
-            result = self._action_results.pop(action_id, None)
-            result_str = ""
-            if result:
-                if result.get("ok"):
-                    detail = result.get("result", "")
-                    url    = result.get("url", "")
-                    result_str = f"✓ {detail} | URL: {url}" if detail else f"✓ ok | URL: {url}"
-                else:
-                    result_str = f"✗ ERROR: {result.get('error','?')} | URL: {result.get('url','')}"
-
-            last_action = action
-            history.append({
-                "action": action,
-                "reason": reason,
-                "result": result_str or "sin feedback (click/navigate/type)",
-            })
-
-            if action == "done":
-                speak_text = cmd.get("text", "")
-                if speak_text:
-                    await self.say(speak_text)
-                logger.info("Task complete after %d steps: %s", step + 1, goal)
-                await self.broadcast({"type": "status", "state": "idle"})
-                return
+            if action == "set_voice":
+                if cmd.get("voice_id"):
+                    self.tts.set_voice(cmd["voice_id"])
+                await self.say(cmd.get("text", "Voz cambiada."))
+                history.append({"action": "set_voice", "reason": reason, "result": "ok"})
+                continue
 
             if action == "wait":
+                await asyncio.sleep(1.5)
+                history.append({"action": "wait", "reason": reason, "result": "waited"})
                 continue
 
-        logger.warning("Task hit max_steps (%d): %s", MAX_STEPS, goal)
-        await self.say("He llegado al límite de pasos. Intenta de nuevo.")
-        await self.broadcast({
-            "type": "action",
-            "action": "done",
-            "reason": "Límite de pasos alcanzado.",
-        })
+            # ── Browser actions (script or single) ────────────────────────
+
+            action_id  = f"r{round_n+1}"
+            cmd["_id"] = action_id
+            await self.broadcast({"type": "action", **cmd})
+
+            if action == "script":
+                result = await self._wait_for_action_result(action_id, timeout=90.0)
+            elif action == "navigate":
+                result = await self._wait_for_action_result(action_id, timeout=12.0)
+                await asyncio.sleep(0.4)
+                result = self._action_results.pop(action_id, result)
+            else:
+                await asyncio.sleep(1.2)
+                result = self._action_results.pop(action_id, None)
+
+            self._action_results.pop(action_id, None)  # cleanup
+
+            if result:
+                if result.get("ok"):
+                    result_str = f"✓ {result.get('result','ok')} | URL: {result.get('url','')}"
+                else:
+                    result_str = (f"✗ step {result.get('failed_step','?')} "
+                                  f"({result.get('failed_desc','?')}): {result.get('error','?')} "
+                                  f"| URL: {result.get('url','')}")
+            else:
+                result_str = "no result / timeout"
+
+            history.append({"action": action, "reason": reason, "result": result_str})
+            logger.info("Round %d [%s]: %s", round_n + 1, action, result_str[:120])
+
+        logger.warning("Task hit max_rounds (%d): %s", MAX_ROUNDS, goal)
+        await self.say("No pude completar la tarea. Intenta de nuevo con más detalle.")
         await self.broadcast({"type": "status", "state": "idle"})
 
     # ── Main tick ─────────────────────────────────────────────────────────

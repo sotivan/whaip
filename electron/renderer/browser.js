@@ -156,103 +156,179 @@ async function executeAction(cmd) {
     case 'scroll':    return handleScroll(cmd.direction)
     case 'navigate':  return handleNavigate(cmd.text, cmd._id)
     case 'js':        return handleJS(cmd.code, cmd._id)
+    case 'script':    return executeScript(cmd.steps || [], cmd._id)
     case 'wait':      return
     case 'done':      return window.dispatchEvent(new CustomEvent('whaip:done', { detail: cmd }))
     default: console.warn('[browser] unknown action:', cmd.action)
   }
 }
 
+// ── JS helpers injected into every Claude-generated code block ───────────────
+
+const AGENT_HELPERS = `
+  function setInput(el, value) {
+    if (!el) return 'ERROR: el is null';
+    const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+    if (s) s.set.call(el, value); else el.value = value;
+    el.dispatchEvent(new Event('input',  { bubbles:true }));
+    el.dispatchEvent(new Event('change', { bubbles:true }));
+    return 'set "' + value + '" on ' + (el.id || el.className.slice(0,30) || el.tagName);
+  }
+  function pressEnter(el) {
+    if (!el) return 'ERROR: el is null';
+    ['keydown','keypress','keyup'].forEach(t =>
+      el.dispatchEvent(new KeyboardEvent(t, { key:'Enter', keyCode:13, bubbles:true })));
+    return 'enter pressed';
+  }
+  async function typeAndSelect(el, value, waitMs) {
+    if (!el) return 'ERROR: el is null';
+    el.focus(); el.click();
+    const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+    if (s) s.set.call(el, value); else el.value = value;
+    ['input','change'].forEach(t => el.dispatchEvent(new Event(t, {bubbles:true})));
+    el.dispatchEvent(new KeyboardEvent('keydown', {key:'a', bubbles:true}));
+    await new Promise(r => setTimeout(r, waitMs || 900));
+    const SUGG = '[class*="suggest"],[class*="autocomplete"],[class*="Suggest"],[class*="Autocomplete"],[role="option"],[role="listbox"] li,[class*="dropdown"] li,[class*="result-item"],[class*="ResultItem"],[class*="address-item"],[class*="AddressItem"],[class*="prediction"],[class*="Prediction"]';
+    const items = [...document.querySelectorAll(SUGG)].filter(e => e.offsetParent !== null && e.textContent.trim().length > 3);
+    if (items[0]) { items[0].click(); return 'typed+selected: ' + items[0].textContent.trim().slice(0,60); }
+    return 'typed only — no suggestion found for: "' + value + '"';
+  }
+  function clickEl(sel) {
+    const el = typeof sel === 'string' ? document.querySelector(sel) : sel;
+    if (!el) {
+      const avail = [...document.querySelectorAll('button,[role="button"],a,pie-button')]
+        .map(b => (b.id||b.className||b.innerText||b.tagName||'').slice(0,30)).filter(Boolean).slice(0,8).join(' | ');
+      return 'NOT FOUND: ' + (typeof sel==='string'?sel:'?') + ' — available: ' + avail;
+    }
+    el.click();
+    return 'clicked: ' + (el.id||el.innerText||el.className||el.tagName).slice(0,50);
+  }
+  function clickWC(tagOrText) {
+    const byTag  = tagOrText.includes('-') ? [...document.querySelectorAll(tagOrText)] : [];
+    const byText = [...document.querySelectorAll('*')].filter(e =>
+      e.tagName.includes('-') && e.textContent.toLowerCase().includes(tagOrText.toLowerCase()));
+    const el = byTag[0] || byText[0];
+    if (el) { el.click(); return 'clicked WC: ' + el.tagName + ' ' + el.textContent.trim().slice(0,40); }
+    const avail = [...document.querySelectorAll('*')].filter(e=>e.tagName.includes('-'))
+      .map(e=>e.tagName+'['+e.textContent.trim().slice(0,20)+']').slice(0,8).join(' | ');
+    return 'WC NOT FOUND: ' + tagOrText + ' — available: ' + avail;
+  }
+`
+
+function buildJS(code) {
+  return `(async function() { ${AGENT_HELPERS} return (async function(){ ${code} })(); })()`
+}
+
 function handleJS(code, actionId) {
   if (!code) return
-  console.log('[whaip] executing JS:', code.slice(0, 200))
+  webview.executeJavaScript(buildJS(code))
+    .then(result => window.whaip.sendToAgent({
+      type: 'action:result', action_id: actionId, ok: true,
+      result: String(result ?? 'ok'), url: webview.getURL?.() || webview.src,
+    }))
+    .catch(err => window.whaip.sendToAgent({
+      type: 'action:result', action_id: actionId, ok: false,
+      error: err.message, url: webview.getURL?.() || webview.src,
+    }))
+}
 
-  const wrapped = `
-    (function() {
-      // ── Helpers available to Claude-generated code ──
-      function setInput(el, value) {
-        if (!el) return 'ERROR: el is null';
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-        if (setter) setter.set.call(el, value);
-        else el.value = value;
-        el.dispatchEvent(new Event('input',  { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return 'ok: set "' + value + '" on ' + (el.id || el.className || el.tagName);
+// ── Script executor: runs a full plan without API round-trips ─────────────────
+
+function navigateAndWait(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    _pendingNavId = null   // don't trigger the global listener
+    const t = setTimeout(() => {
+      webview.removeEventListener('did-finish-load', onLoad)
+      webview.removeEventListener('did-fail-load',   onFail)
+      reject(new Error('navigate timeout'))
+    }, timeoutMs || 12000)
+    function onLoad() {
+      clearTimeout(t)
+      webview.removeEventListener('did-finish-load', onLoad)
+      webview.removeEventListener('did-fail-load',   onFail)
+      addressBar.value = webview.getURL?.() || webview.src
+      window.whaip.sendToAgent({ type: 'page:context', url: webview.getURL?.() || webview.src, title: '' })
+      resolve()
+    }
+    function onFail(e) {
+      if (e.errorCode === -3) return  // SPA redirect; did-finish-load follows
+      clearTimeout(t)
+      webview.removeEventListener('did-finish-load', onLoad)
+      webview.removeEventListener('did-fail-load',   onFail)
+      reject(new Error(e.errorDescription + ' (' + e.errorCode + ')'))
+    }
+    webview.addEventListener('did-finish-load', onLoad)
+    webview.addEventListener('did-fail-load',   onFail)
+    webview.src = normalizeUrl(url)
+    addressBar.value = webview.src
+  })
+}
+
+async function waitForContent(selector, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 5000)
+  const js = `(function(){
+    try {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (el && el.offsetParent !== null) return true;
+      return [...document.querySelectorAll('*')].some(e =>
+        e.offsetParent !== null &&
+        e.textContent.trim().toLowerCase().includes(${JSON.stringify(selector.toLowerCase())}));
+    } catch(e) { return false; }
+  })()`
+  while (Date.now() < deadline) {
+    const found = await webview.executeJavaScript(js).catch(() => false)
+    if (found) return true
+    await new Promise(r => setTimeout(r, 300))
+  }
+  return false
+}
+
+async function executeScript(steps, scriptId) {
+  const url = () => webview.getURL?.() || webview.src
+  const fail = (i, desc, error) => window.whaip.sendToAgent({
+    type: 'script:result', script_id: scriptId, ok: false,
+    failed_step: i, failed_desc: desc, error, url: url(),
+  })
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]
+    const desc = step.desc || step.type
+    console.log(`[script ${scriptId}] step ${i+1}/${steps.length}: ${desc}`)
+
+    try {
+      if (step.type === 'js') {
+        const r = String(await webview.executeJavaScript(buildJS(step.code)) ?? '')
+        console.log(`[script] →`, r.slice(0, 120))
+        if (r.startsWith('ERROR:') || r.startsWith('NOT FOUND:') || r.startsWith('WC NOT FOUND:'))
+          return fail(i, desc, r)
+
+      } else if (step.type === 'navigate') {
+        await navigateAndWait(step.url)
+        setTimeout(runCookieDismiss, 800)
+        setTimeout(runCookieDismiss, 2500)
+        await new Promise(r => setTimeout(r, 400))  // brief settle
+
+      } else if (step.type === 'wait_for') {
+        const found = await waitForContent(step.selector, step.timeout || 5000)
+        if (!found) return fail(i, desc, 'timeout waiting for: ' + step.selector)
+
+      } else if (step.type === 'wait_ms') {
+        await new Promise(r => setTimeout(r, step.ms || 500))
+
+      } else if (step.type === 'speak') {
+        window.whaip.sendToAgent({ type: 'script:speak', text: step.text })
+        await new Promise(r => setTimeout(r, 200))
       }
-      function pressEnter(el) {
-        if (!el) return 'ERROR: el is null';
-        el.dispatchEvent(new KeyboardEvent('keydown',  { key:'Enter', keyCode:13, bubbles:true }));
-        el.dispatchEvent(new KeyboardEvent('keypress', { key:'Enter', keyCode:13, bubbles:true }));
-        el.dispatchEvent(new KeyboardEvent('keyup',    { key:'Enter', keyCode:13, bubbles:true }));
-        return 'ok: enter pressed';
-      }
-      // ── typeAndSelect: fills input AND clicks first autocomplete suggestion ──
-      // Use this for address/search fields on SPAs (Glovo, Just Eat, etc.)
-      // Returns what happened — suggestion text or 'typed only'
-      async function typeAndSelect(el, value, waitMs) {
-        if (!el) return 'ERROR: el is null';
-        el.focus(); el.click();
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-        if (setter) setter.set.call(el, value); else el.value = value;
-        ['input','change'].forEach(t => el.dispatchEvent(new Event(t, {bubbles:true})));
-        el.dispatchEvent(new KeyboardEvent('keydown', {key:'a',bubbles:true}));
-        // Wait for SPA to render suggestions
-        await new Promise(r => setTimeout(r, waitMs || 900));
-        // Find first visible suggestion
-        const SUGGEST_SEL = '[class*="suggest"],[class*="autocomplete"],[class*="Suggest"],[class*="Autocomplete"],[role="option"],[role="listbox"] li,[class*="dropdown"] li,[class*="result-item"],[class*="ResultItem"],[class*="address-item"],[class*="AddressItem"]';
-        const items = [...document.querySelectorAll(SUGGEST_SEL)].filter(e => e.offsetParent !== null && e.textContent.trim().length > 3);
-        if (items[0]) { items[0].click(); return 'typed+selected: ' + items[0].textContent.trim().slice(0,60); }
-        return 'typed only (no suggestion found): "' + value + '"';
-      }
-      function clickEl(selector) {
-        const el = typeof selector === 'string' ? document.querySelector(selector) : selector;
-        if (!el) {
-          const btns = [...document.querySelectorAll('button,[role="button"],pie-button,pie-icon-button')]
-            .map(b => (b.className || b.id || b.innerText || b.tagName || '').slice(0,40))
-            .filter(Boolean).slice(0,10).join(' | ');
-          return 'NOT FOUND: ' + (typeof selector === 'string' ? selector : '?') + ' — visible buttons: ' + btns;
-        }
-        el.click();
-        return 'clicked: ' + (el.className || el.id || el.innerText || el.tagName).slice(0,60);
-      }
-      // ── Web Component helper (PIE-RADIO, PIE-BUTTON, etc. with shadow DOM) ──
-      function clickWC(tagOrText) {
-        // 1. Try by tag name + text match
-        const all = [...document.querySelectorAll(tagOrText.includes('-') ? tagOrText : '*')]
-          .filter(e => e.tagName && e.tagName.includes('-'));
-        // 2. Try any custom element whose textContent matches
-        const byText = [...document.querySelectorAll('*')]
-          .filter(e => e.tagName.includes('-') && e.textContent.toLowerCase().includes(tagOrText.toLowerCase()));
-        const target = all[0] || byText[0];
-        if (target) { target.click(); return 'clicked WC: ' + target.tagName + ' ' + target.textContent.trim().slice(0,40); }
-        // 3. Diagnostic
-        const wcs = [...document.querySelectorAll('*')].filter(e=>e.tagName.includes('-'))
-          .map(e=>e.tagName+'['+e.textContent.trim().slice(0,20)+']').slice(0,8).join(' | ');
-        return 'WC NOT FOUND: ' + tagOrText + ' — available: ' + wcs;
-      }
-      // ── Claude code ──
-      return (function(){ ${code} })();
-    })()
-  `
-  webview.executeJavaScript(wrapped)
-    .then(result => {
-      window.whaip.sendToAgent({
-        type: 'action:result',
-        action_id: actionId,
-        ok: true,
-        result: String(result ?? 'ok'),
-        url: location.href,
-      })
-    })
-    .catch(err => {
-      console.error('[whaip] JS error:', err.message)
-      window.whaip.sendToAgent({
-        type: 'action:result',
-        action_id: actionId,
-        ok: false,
-        error: err.message,
-        url: location.href,
-      })
-    })
+
+    } catch (e) {
+      return fail(i, desc, e.message)
+    }
+  }
+
+  window.whaip.sendToAgent({
+    type: 'script:result', script_id: scriptId, ok: true,
+    result: `completed ${steps.length} steps`, url: url(),
+  })
 }
 
 // ── AI cursor ─────────────────────────────────────────────────────────────────
