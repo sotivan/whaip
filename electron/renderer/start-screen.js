@@ -60,8 +60,8 @@ window.whaip.onAgentMessage(data => {
     const name = data.name || ''
     startName.textContent = name ? `, ${name}` : ''
   }
-  // Auto-hide when agent starts working (first transcript or navigation)
-  if (data.type === 'transcript' || data.type === 'action') {
+  // Auto-hide as soon as agent does anything
+  if (data.type === 'transcript' || data.type === 'action' || data.type === 'status') {
     window.hideStartScreen()
   }
 })
