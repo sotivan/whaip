@@ -114,6 +114,13 @@ CRITICAL — DO NOT TOUCH COOKIES OR ADS:
    - ADDRESS FIELDS: const el = document.querySelector('input[placeholder*="direcci" i],input[placeholder*="address" i],input[name*="address"],input[id*="address"]'); return setInput(el, 'ADDRESS') + ' | ' + pressEnter(el);
    - EMAIL/LOGIN FIELDS: const el = document.querySelector('input[type="email"],input[name*="email"],input[placeholder*="email" i],input[placeholder*="correo" i]'); return setInput(el, 'EMAIL');
    - PASSWORD FIELDS:    const pwd = document.querySelector('input[type="password"]'); return setInput(pwd, 'PASSWORD_VALUE');
+   - RADIO BUTTONS / SIZE SELECTORS (React/Vue need synthetic events — NEVER just .click() the radio):
+     const radio = [...document.querySelectorAll('input[type="radio"]')].find(r => (r.value||r.id||r.closest('label')?.innerText||'').toLowerCase().includes('OPTION'));
+     if (radio) { radio.checked=true; ['change','click','input'].forEach(t=>radio.dispatchEvent(new Event(t,{bubbles:true,cancelable:true}))); const lbl=radio.closest('label')||document.querySelector('label[for="'+radio.id+'"]'); if(lbl){lbl.click();} return 'radio: '+(radio.value||radio.id); }
+     // Fallback: look for clickable cards/divs with matching text
+     const card = [...document.querySelectorAll('[class*="size"],[class*="option"],[class*="variant"],[role="radio"]')].find(e=>e.innerText.toLowerCase().includes('OPTION'));
+     if(card){card.click(); return 'card: '+card.innerText.slice(0,40);} return 'NOT FOUND — radio options: '+[...document.querySelectorAll('input[type="radio"]')].map(r=>r.value||r.id).join('|');
+   - DROPDOWN/SELECT: const sel=document.querySelector('select'); if(sel){sel.value='VALUE'; sel.dispatchEvent(new Event('change',{bubbles:true})); return 'selected: '+sel.value;}
    - YouTube comment:  const box = document.querySelector('#simplebox-placeholder,#contenteditable-root,ytd-comment-simplebox-renderer'); if(box){box.click(); setTimeout(()=>{const ed=document.querySelector('#contenteditable-root'); if(ed){ed.focus(); document.execCommand('insertText',false,'TEXT');}},500);} return box?'clicked comment box':'NOT FOUND';
 
 4. NEVER repeat the same failed action. After 1 failure, switch approach completely.

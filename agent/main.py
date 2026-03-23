@@ -315,8 +315,9 @@ class AgentLoop:
             logger.debug("Discarded (not a command): %s", raw[:60])
             return
 
-        # New command → cancel whatever is running
+        # New command → cancel whatever is running + stop any in-progress audio
         if self._current_task and not self._current_task.done():
+            self.tts.stop()   # kill audio immediately so new command can speak
             self._current_task.cancel()
             try:
                 await self._current_task

@@ -36,6 +36,8 @@ COMMANDS (is_command=true) — any of these patterns:
 - Real-world tasks via browser: "pídeme una pizza", "reserva un vuelo", "encárgame X", "ponme algo en Netflix", "busca X en Amazon"
 - Page interaction: "pulsa el botón de X", "haz clic en X", "rellena el campo X"
 - Corrections/meta: "no, espera", "para", "cancela", "ignora eso", "mejor X"
+- Agent meta-commands (directed AT the assistant): "cambia la voz", "cambia tu voz", "usa otra voz", "pon voz de hombre/mujer", "¿puedes cambiar la voz?", "habla más rápido/despacio"
+- Questions addressed to the assistant asking it to DO something: "¿puedes X?", "¿podrías X?", "¿puedes hacer X?" — these ARE commands if X is an action
 - Even if poorly transcribed: "alta el anuncio" = "salta el anuncio"
 
 BACKGROUND AUDIO (is_command=false) — ONLY if it's clearly audio coming from speakers/browser, NOT the user talking:
@@ -92,7 +94,7 @@ class IntentClassifier:
     # Verbs that almost certainly mean the user is giving a command
     _COMMAND_VERBS = {
         "pulsa", "haz", "navega", "busca", "abre", "cierra", "salta", "pausa",
-        "reproduce", "pon", "ponme", "escribe", "rellena", "manda", "envía",
+        "reproduce", "pon", "ponme", "escribe", "rellena", "manda", "envías",
         "envia", "descarga", "sube", "compra", "acepta", "rechaza", "vuelve",
         "avanza", "retrocede", "scroll", "maximiza", "minimiza", "recarga",
         "buscar", "abrir", "cerrar", "saltar", "pausar", "poner", "escribir",
@@ -101,9 +103,15 @@ class IntentClassifier:
         "llévame", "llevame", "ir", "ve", "para", "stop", "cancela", "cancel",
         # Real-world tasks done via browser
         "pídeme", "pideme", "pide", "reserva", "reservar", "reservame",
-        "reservame", "pedir", "encarga", "encárgame", "encargame",
+        "pedir", "encarga", "encárgame", "encargame",
         "consigue", "consigueme", "consígueme", "tramita", "gestiona",
         "llama", "contacta", "agenda", "agéndame", "agendame",
+        # Agent meta-commands (voice, settings, etc.)
+        "cambia", "cambiar", "cambiame", "cámbiame", "pon", "usa", "usar",
+        "activa", "activar", "desactiva", "desactivar", "ajusta", "ajustar",
+        "modifica", "modificar", "configura", "configurar",
+        # Questions directed at the agent also count as commands
+        "puedes", "podrías", "podrias", "puedes",
     }
 
     async def classify(self, transcription: str) -> Optional[str]:
@@ -122,7 +130,10 @@ class IntentClassifier:
             return None
 
         # Fast-path: if starts with a known command verb → skip classifier, always a command
-        if words[0] in self._COMMAND_VERBS or (len(words) > 1 and words[1] in self._COMMAND_VERBS):
+        # Strip leading punctuation (e.g. "¿puedes" → "puedes") before checking
+        import re as _re
+        clean_words = [_re.sub(r'^[¿¡\W]+|[\W?!\.]+$', '', w) for w in words]
+        if clean_words[0] in self._COMMAND_VERBS or (len(clean_words) > 1 and clean_words[1] in self._COMMAND_VERBS):
             logger.info("Intent [fast-path] ✓ → %s", transcription)
             self._last_command = transcription
             return transcription

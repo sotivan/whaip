@@ -31,6 +31,7 @@ class TTSClient:
         self._memory   = memory          # UserMemory instance for persistent voice pref
         self._backend  = None
         self._lock     = threading.Lock()  # one utterance at a time
+        self._current_proc: "subprocess.Popen | None" = None  # running audio process
 
     # ── Voice ID (can be overridden by memory) ─────────────────────────────
 
@@ -79,6 +80,20 @@ class TTSClient:
 
     # ── Public API ─────────────────────────────────────────────────────────
 
+    def stop(self) -> None:
+        """Interrupt any currently playing audio immediately."""
+        proc = self._current_proc
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=1)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        self._current_proc = None
+
     async def speak(self, text: str) -> None:
         """Speak text. Waits for previous utterance to finish (no overlapping)."""
         if not text:
@@ -98,22 +113,29 @@ class TTSClient:
                 logger.error("TTS [%s] failed: %s — trying fallback", self._backend, exc)
                 self._speak_fallback(text)
 
+    def _run_proc(self, cmd: list) -> None:
+        """Run a subprocess and store it in _current_proc so stop() can kill it."""
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._current_proc = proc
+        proc.wait()
+        self._current_proc = None
+
     def _speak_sync(self, text: str) -> None:
         if self._backend == "elevenlabs":
             self._speak_elevenlabs(text)
         elif self._backend == "pyttsx3":
             self._speak_pyttsx3(text)
         elif self._backend == "say":
-            subprocess.run(["say", text], check=True)
+            self._run_proc(["say", text])
         elif self._backend == "espeak":
-            subprocess.run(["espeak", "-v", "es", text], check=True)
+            self._run_proc(["espeak", "-v", "es", text])
         else:
             logger.info("[TTS silent] %s", text)
 
     def _speak_fallback(self, text: str) -> None:
         """Last-resort: macOS say, then silent."""
         try:
-            subprocess.run(["say", text], check=True, timeout=30)
+            self._run_proc(["say", text])
         except Exception:
             logger.info("[TTS silent fallback] %s", text)
 
@@ -136,12 +158,11 @@ class TTSClient:
             tmp = f.name
         try:
             if subprocess.run(["which", "afplay"], capture_output=True).returncode == 0:
-                subprocess.run(["afplay", tmp], check=True)
+                self._run_proc(["afplay", tmp])
             elif subprocess.run(["which", "mpv"], capture_output=True).returncode == 0:
-                subprocess.run(["mpv", "--no-video", "--really-quiet", tmp], check=True)
+                self._run_proc(["mpv", "--no-video", "--really-quiet", tmp])
             elif subprocess.run(["which", "ffplay"], capture_output=True).returncode == 0:
-                subprocess.run(["ffplay", "-nodisp", "-autoexit", tmp], check=True,
-                               capture_output=True)
+                self._run_proc(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", tmp])
             else:
                 from elevenlabs import play
                 play(audio_bytes)
