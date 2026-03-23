@@ -142,6 +142,25 @@ class AgentLoop:
                     data.get("error", data.get("result", "")),
                 )
 
+    # ── Page load wait ────────────────────────────────────────────────────
+
+    async def _wait_for_page_load(self, timeout: float = 10.0, poll: float = 0.5) -> None:
+        """Poll DOM readyState until 'complete' or timeout. Real logic, no fixed sleep."""
+        import time
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            snap_raw = await self.request_dom_snapshot(timeout=2.0)
+            if snap_raw:
+                try:
+                    import json as _json
+                    snap = _json.loads(snap_raw)
+                    if snap.get("readyState") == "complete":
+                        return
+                except Exception:
+                    return
+            await asyncio.sleep(poll)
+        logger.debug("_wait_for_page_load: timeout after %.1fs", timeout)
+
     # ── DOM snapshot request ───────────────────────────────────────────────
 
     async def request_dom_snapshot(self, timeout: float = 2.5) -> Optional[str]:
@@ -362,9 +381,12 @@ class AgentLoop:
             cmd["_id"] = action_id
 
             await self.broadcast({"type": "action", **cmd})
-            # Navigate needs more time for page to load; js/scroll need less
-            delay = 3.0 if action == "navigate" else (0.8 if action in ("scroll", "wait") else STEP_DELAY)
-            await asyncio.sleep(delay)
+            await asyncio.sleep(STEP_DELAY)
+
+            # After navigate: wait for page to actually finish loading (readyState=complete)
+            # instead of a hardcoded delay — fast pages proceed immediately, slow pages wait
+            if action == "navigate":
+                await self._wait_for_page_load(timeout=10.0)
 
             result = self._action_results.pop(action_id, None)
             result_str = ""

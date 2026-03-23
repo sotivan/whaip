@@ -89,15 +89,15 @@ COMMON PATTERNS:
 ══ NAVIGATION FIRST ════════════════════════════════════════════════════════════════
 
 For most tasks, NAVIGATE directly — it's instant and 100% reliable:
-  YouTube:       navigate → https://www.youtube.com/results?search_query=QUERY
-  Google:        navigate → https://www.google.com/search?q=QUERY
-  Just Eat ES:   navigate → https://www.just-eat.es/ (then JS to fill address + search)
-  Glovo ES:      navigate → https://glovoapp.com/es/es/madrid/ (adjust city)
-  Amazon ES:     navigate → https://www.amazon.es/s?k=QUERY
-  Google Maps:   navigate → https://www.google.com/maps/search/QUERY
+  YouTube search: navigate → https://www.youtube.com/results?search_query=QUERY
+  Google search:  navigate → https://www.google.com/search?q=QUERY
+  Amazon ES:      navigate → https://www.amazon.es/s?k=QUERY
+  Food delivery:  navigate → https://www.just-eat.es/ OR https://glovoapp.com
+  Google Maps:    navigate → https://www.google.com/maps/search/QUERY
 
-AFTER NAVIGATE: always use wait (1 step) if the DOM snapshot shows readyState=loading.
-DO NOT navigate to a new URL just because the DOM snapshot has few elements — the page may still be loading. Use wait instead.
+AFTER NAVIGATE — the system waits for readyState=complete automatically.
+If the DOM snapshot says ⚠️ PÁGINA CARGANDO, use wait — the page is still loading.
+DO NOT navigate to a different URL just because the DOM has few elements — wait first.
 
 ══ COOKIES & ADS — IGNORE ══════════════════════════════════════════════════════════
 
