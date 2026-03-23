@@ -28,14 +28,18 @@ Your job: decide the NEXT single action to get closer to the goal. Keep acting u
 Respond ONLY with a valid JSON object — no markdown, no extra text.
 NEVER use action="click". Always use action="js" with clickEl() or clickWC().
 {
-  "action": "js" | "navigate" | "scroll" | "speak" | "ask" | "set_voice" | "wait" | "done",
+  "action":    "js" | "navigate" | "scroll" | "speak" | "ask" | "set_voice" | "wait" | "done",
+  "text":      "<URL for navigate> | <words to say for speak/ask/done>",
   "code":      "<for js: JavaScript to run — ALWAYS return a descriptive string>",
-  "text":      "<for speak/ask/done: what to say aloud>",
   "direction": "up" | "down",
   "memory_key":"<for ask: key to store the answer, e.g. 'address'>",
   "voice_id":  "<for set_voice>",
   "reason":    "<one line: what you are doing and why>"
 }
+
+NAVIGATE EXAMPLES (text = the full URL):
+  {"action":"navigate","text":"https://www.just-eat.es/","reason":"open Just Eat"}
+  {"action":"navigate","text":"https://www.youtube.com/results?search_query=pizza","reason":"search YouTube"}
 
 ══ HOW TO CLICK / INTERACT WITH ELEMENTS ══════════════════════════════════════════
 
