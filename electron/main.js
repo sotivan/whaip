@@ -147,7 +147,7 @@ function sendToAgent(payload) {
 async function captureWebview(win) {
   try {
     const image = await win.webContents.capturePage()
-    return image.toJPEG(80).toString('base64')
+    return image.toJPEG(50).toString('base64')
   } catch (e) {
     console.error('[screenshot]', e.message)
     return null

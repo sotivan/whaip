@@ -192,10 +192,11 @@ class AgentLoop:
         Claude acts → sees result → acts again until done or max_steps.
         Supports ask/speak actions for conversational clarification.
         """
-        MAX_STEPS  = 20
-        STEP_DELAY = 1.5   # seconds between actions (let page settle)
+        MAX_STEPS  = 12
+        STEP_DELAY = 1.2   # seconds between actions (let page settle)
         history    = []
         action_counter = 0
+        last_action    = None
 
         # Inject user profile so Claude knows what it already knows
         profile = self.memory.get_profile_summary()
@@ -203,7 +204,11 @@ class AgentLoop:
         await self.broadcast({"type": "status", "state": "thinking"})
 
         for step in range(MAX_STEPS):
-            screenshot = await self.request_screenshot()
+            # Skip screenshot for cheap actions that don't change page visually
+            # Only capture after: navigate, click, js, or every 3 steps as a sanity check
+            _VISUAL_ACTIONS = {None, "navigate", "click", "js", "scroll"}
+            need_screenshot = (last_action in _VISUAL_ACTIONS) or (step % 3 == 0)
+            screenshot = await self.request_screenshot() if need_screenshot else None
 
             cmd = await self.claude.decide(
                 voice_text=goal,
@@ -272,6 +277,7 @@ class AgentLoop:
                 else:
                     result_str = f"✗ ERROR: {result.get('error','unknown error')}"
 
+            last_action = action
             history.append({
                 "action": action,
                 "reason": reason,

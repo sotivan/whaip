@@ -181,7 +181,7 @@ class ClaudeClient:
                 None,
                 lambda: self._client.messages.create(
                     model="claude-sonnet-4-6",
-                    max_tokens=512,
+                    max_tokens=300,
                     system=SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": content}],
                 ),
