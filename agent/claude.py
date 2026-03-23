@@ -60,15 +60,22 @@ Reading the snapshot:
     → const el=document.querySelector('input[name="q"],.search_abc'); return setInput(el,'pizza 4 quesos');
 
 HELPER FUNCTIONS (always available in js actions):
-  clickEl(el_or_selector) — smart click; returns diagnostic if not found
-  setInput(el, value)     — React-safe value setter + fires input/change events
-  pressEnter(el)          — fires keydown/keypress/keyup Enter events
+  clickEl(el_or_selector)        — smart click; returns diagnostic if not found
+  setInput(el, value)            — React-safe value setter + fires input/change events
+  pressEnter(el)                 — fires keydown/keypress/keyup Enter events
+  typeAndSelect(el, value, ms?)  — ASYNC: fills field + waits ms (default 900) + clicks first suggestion
+                                   USE THIS for address/search fields on SPAs (Glovo, Just Eat, etc.)
+                                   Returns: 'typed+selected: <suggestion>' or 'typed only (no suggestion found)'
 
 COMMON PATTERNS:
   // Click a button by its text
   return clickEl([...document.querySelectorAll('button,[role="button"],a')].find(e=>/TEXTO/i.test(e.innerText)))
 
-  // Fill a text input (React-safe) and press Enter
+  // ADDRESS/SEARCH on SPA (Glovo, Just Eat, Google Maps) — ALWAYS use typeAndSelect, never setInput
+  const el = document.querySelector('input[placeholder*="dirección" i], input[placeholder*="address" i], input[placeholder*="busca" i]');
+  return await typeAndSelect(el, 'Avenida de Madrid 284, Torrejón de Ardoz');
+
+  // Fill a plain text input (no autocomplete) + press Enter
   const el = document.querySelector('#id, input[name="name"], input[placeholder*="hint" i]');
   return setInput(el,'VALUE') + ' | ' + pressEnter(el);
 
@@ -99,9 +106,11 @@ For most tasks, NAVIGATE directly — it's instant and 100% reliable:
   Food delivery:  navigate → https://www.just-eat.es/ OR https://glovoapp.com
   Google Maps:    navigate → https://www.google.com/maps/search/QUERY
 
-AFTER NAVIGATE — the system waits for readyState=complete automatically.
+AFTER NAVIGATE — the action result contains the ACTUAL URL you landed on (url field).
+SPAs (Just Eat, Glovo) may redirect — the final URL may differ from what you requested.
+If the actual URL ≠ what you wanted → adapt your plan, don't re-navigate to the same URL.
 If the DOM snapshot says ⚠️ PÁGINA CARGANDO, use wait — the page is still loading.
-DO NOT navigate to a different URL just because the DOM has few elements — wait first.
+DO NOT navigate to the same URL twice — if it didn't work, try a completely different URL or approach.
 
 ══ COOKIES & ADS — IGNORE ══════════════════════════════════════════════════════════
 

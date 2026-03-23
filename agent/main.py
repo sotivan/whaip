@@ -388,9 +388,11 @@ class AgentLoop:
             result_str = ""
             if result:
                 if result.get("ok"):
-                    result_str = f"✓ ejecutado ok. URL actual: {result.get('url','')}"
+                    detail = result.get("result", "")
+                    url    = result.get("url", "")
+                    result_str = f"✓ {detail} | URL: {url}" if detail else f"✓ ok | URL: {url}"
                 else:
-                    result_str = f"✗ ERROR: {result.get('error','unknown error')}"
+                    result_str = f"✗ ERROR: {result.get('error','?')} | URL: {result.get('url','')}"
 
             last_action = action
             history.append({

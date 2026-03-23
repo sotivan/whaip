@@ -185,6 +185,24 @@ function handleJS(code, actionId) {
         el.dispatchEvent(new KeyboardEvent('keyup',    { key:'Enter', keyCode:13, bubbles:true }));
         return 'ok: enter pressed';
       }
+      // ── typeAndSelect: fills input AND clicks first autocomplete suggestion ──
+      // Use this for address/search fields on SPAs (Glovo, Just Eat, etc.)
+      // Returns what happened — suggestion text or 'typed only'
+      async function typeAndSelect(el, value, waitMs) {
+        if (!el) return 'ERROR: el is null';
+        el.focus(); el.click();
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+        if (setter) setter.set.call(el, value); else el.value = value;
+        ['input','change'].forEach(t => el.dispatchEvent(new Event(t, {bubbles:true})));
+        el.dispatchEvent(new KeyboardEvent('keydown', {key:'a',bubbles:true}));
+        // Wait for SPA to render suggestions
+        await new Promise(r => setTimeout(r, waitMs || 900));
+        // Find first visible suggestion
+        const SUGGEST_SEL = '[class*="suggest"],[class*="autocomplete"],[class*="Suggest"],[class*="Autocomplete"],[role="option"],[role="listbox"] li,[class*="dropdown"] li,[class*="result-item"],[class*="ResultItem"],[class*="address-item"],[class*="AddressItem"]';
+        const items = [...document.querySelectorAll(SUGGEST_SEL)].filter(e => e.offsetParent !== null && e.textContent.trim().length > 3);
+        if (items[0]) { items[0].click(); return 'typed+selected: ' + items[0].textContent.trim().slice(0,60); }
+        return 'typed only (no suggestion found): "' + value + '"';
+      }
       function clickEl(selector) {
         const el = typeof selector === 'string' ? document.querySelector(selector) : selector;
         if (!el) {
@@ -366,12 +384,13 @@ function handleNavigate(url, actionId) {
 // Report navigate result when page finishes loading or fails
 webview.addEventListener('did-finish-load', () => {
   if (_pendingNavId) {
+    const actualUrl = webview.getURL ? webview.getURL() : webview.src
     window.whaip.sendToAgent({
       type:      'action:result',
       action_id: _pendingNavId,
       ok:        true,
       result:    'página cargada',
-      url:       webview.src,
+      url:       actualUrl,
     })
     _pendingNavId = null
   }
@@ -384,7 +403,7 @@ webview.addEventListener('did-fail-load', e => {
       action_id: _pendingNavId,
       ok:        false,
       error:     `${e.errorDescription} (${e.errorCode}) — ${e.validatedURL}`,
-      url:       webview.src,
+      url:       webview.getURL ? webview.getURL() : webview.src,
     })
     _pendingNavId = null
   }
