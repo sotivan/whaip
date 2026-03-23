@@ -83,6 +83,10 @@ class AgentLoop:
         await self.voice.setup()
         self.claude.setup()
         self.intent.setup()
+        # Apply config voice_id → persists to memory so it wins over any old session value
+        cfg_voice = self.config.get("elevenlabs_voice_id", "").strip()
+        if cfg_voice:
+            self.tts.set_voice(cfg_voice)
 
     async def teardown(self) -> None:
         await self.voice.teardown()
@@ -265,6 +269,14 @@ class AgentLoop:
         """
         import re
         t = intent.lower()
+
+        # ── Restore configured voice ("la que puse", "mi id", "la del config") ──
+        if re.search(r"que puse|mi id|del config|configur|la mía|la que tengo", t):
+            cfg_voice = self.config.get("elevenlabs_voice_id", "").strip()
+            if cfg_voice:
+                self.tts.set_voice(cfg_voice)
+                await self.say("Voz restaurada a la que configuraste.")
+            return True
 
         # ── Voice change ──────────────────────────────────────────────────
         if re.search(r"cambia|cambi|otra voz|voz de |change voice|voice", t):

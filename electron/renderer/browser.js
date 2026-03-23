@@ -329,7 +329,8 @@ async function executeScript(steps, scriptId) {
       }
 
     } catch (e) {
-      return fail(i, desc, e.message)
+      const msg = e?.message || (typeof e === 'object' ? JSON.stringify(e) : String(e)) || 'unknown error'
+      return fail(i, desc, msg)
     }
   }
 
