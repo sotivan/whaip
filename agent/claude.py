@@ -51,6 +51,8 @@ PRIORITY RULES — follow in this order:
    - IMPORTANT: clickEl() returns "NOT FOUND: ... visible buttons: X|Y|Z" if element missing.
      If result says NOT FOUND, read the visible buttons list and use the correct selector next time.
    - Use setInput(el, value) + pressEnter(el) for text inputs. Both return status strings.
+   - EMAIL/LOGIN FIELDS: const email = document.querySelector('input[type="email"],input[name*="email"],input[name*="mail"],input[id*="email"],input[placeholder*="email" i],input[placeholder*="correo" i]'); return setInput(email, 'EMAIL_VALUE');
+   - PASSWORD FIELDS:    const pwd = document.querySelector('input[type="password"]'); return setInput(pwd, 'PASSWORD_VALUE');
    - YouTube comment:  const box = document.querySelector('#simplebox-placeholder,#contenteditable-root,ytd-comment-simplebox-renderer'); if(box){box.click(); setTimeout(()=>{const ed=document.querySelector('#contenteditable-root'); if(ed){ed.focus(); document.execCommand('insertText',false,'TEXT');}},500);} return box?'clicked comment box':'NOT FOUND';
 
 3. NEVER repeat the same failed action. After 1 failure, switch approach completely:

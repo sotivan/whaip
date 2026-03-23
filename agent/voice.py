@@ -278,17 +278,42 @@ class VoiceListener:
                 logger.debug("Rejected long transcription (background audio): %s", text[:80])
                 return ""
 
-            # Fix common proper name misrecognitions
+            # Fix common misrecognitions
             CORRECTIONS = {
+                # Artist names
                 "duque": "duki",
                 "dukie": "duki",
                 "doughi": "duki",
                 "duky": "duki",
                 "duke": "duki",
+                # Email domains
+                "jemail": "gmail",
+                "ymail": "gmail",
+                "jmail": "gmail",
+                "gmaill": "gmail",
+                "hotmaill": "hotmail",
+                "jotmail": "hotmail",
+                "outloock": "outlook",
+                "yaoo": "yahoo",
+                "yaho": "yahoo",
+                # Email structure words (spoken)
+                "arroba": "@",
+                "aroba": "@",
+                "punto": ".",
+                "coma": ",",
             }
             words = text.split()
             corrected = [CORRECTIONS.get(w.strip(".,!?"), w) for w in words]
             text = " ".join(corrected)
+
+            # Collapse spoken email format: "ivan @ gmail . com" → "ivan@gmail.com"
+            import re as _re
+            text = _re.sub(r'\s*@\s*', '@', text)
+            # "palabra . palabra" solo en contexto email (después de @)
+            if '@' in text:
+                parts = text.split('@', 1)
+                domain = _re.sub(r'\s*\.\s*', '.', parts[1])
+                text = parts[0].strip() + '@' + domain
 
             return text
         except Exception as exc:
