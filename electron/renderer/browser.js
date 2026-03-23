@@ -679,9 +679,17 @@ function showPasswordSavePrompt(domain) {
 
 ;(async function init() {
   const cfg = await window.whaip.getConfig()
-  const home = cfg?.browser?.home_url || 'https://www.google.com'
-  wv().src = home
-  addressBar.value = home
+  window._homeUrl = cfg?.browser?.home_url || 'https://www.google.com'
+  // Don't load home yet — start screen is visible. Load when start screen hides.
+  addressBar.value = ''
   btnBack.style.opacity    = '0.35'
   btnForward.style.opacity = '0.35'
 })()
+
+// Called by start-screen.js when the start screen is dismissed
+window.loadHomeUrl = function() {
+  if (window._homeUrl && (wv().src === 'about:blank' || !wv().src)) {
+    wv().src = window._homeUrl
+    addressBar.value = window._homeUrl
+  }
+}

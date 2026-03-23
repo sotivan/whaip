@@ -18,7 +18,10 @@ window.showStartScreen = function() {
 }
 
 window.hideStartScreen = function() {
+  if (startScreen.classList.contains('ss-gone')) return  // already hidden
   startScreen.classList.add('ss-gone')
+  // Load home URL now that the user is actively using the browser
+  if (typeof window.loadHomeUrl === 'function') window.loadHomeUrl()
 }
 
 // ── Mic button ────────────────────────────────────────────────────────────────
