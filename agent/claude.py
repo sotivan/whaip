@@ -45,14 +45,16 @@ PRIORITY RULES — follow in this order:
    - If the user wants to search anything, ALWAYS use the search URL directly.
 
 2. USE JS FOR BUTTON CLICKS when coordinate clicks fail:
-   - Accept cookies:  [...document.querySelectorAll('button')].find(b=>/aceptar|accept/i.test(b.innerText))?.click()
-   - Click by text:   [...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText))?.click()
+   - Skip YouTube ad:  document.querySelector('.ytp-skip-ad-button,.ytp-ad-skip-button,[class*="skip"]')?.click()
+   - Accept cookies:   [...document.querySelectorAll('button')].find(b=>/aceptar|accept/i.test(b.innerText))?.click()
+   - Click by text:    [...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText))?.click()
    - Use setInput(el, value) + pressEnter(el) ONLY for simple non-React inputs.
 
-3. NEVER repeat the same action twice. If something failed, try a completely different approach.
-   - JS failed? → Try navigate with URL instead.
-   - Click failed? → Try JS to find element by text.
-   - setInput failed? → Navigate to the search URL directly.
+3. NEVER repeat the same failed action. After 1 failure, switch approach completely:
+   - Click failed once? → Use JS with text selector.
+   - JS failed once? → Navigate to URL directly.
+   - Can't find element? → Use navigate with URL.
+   - YouTube ad? → ALWAYS use JS with .ytp-skip-ad-button selector first.
 
 4. Return action=done ONLY when the goal is visibly achieved in the screenshot.
 5. Reply in the same language the user spoke.""".strip()
