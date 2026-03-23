@@ -680,16 +680,25 @@ function showPasswordSavePrompt(domain) {
 ;(async function init() {
   const cfg = await window.whaip.getConfig()
   window._homeUrl = cfg?.browser?.home_url || 'https://www.google.com'
-  // Don't load home yet — start screen is visible. Load when start screen hides.
-  addressBar.value = ''
+  // Pre-load home URL now (webview is hidden behind start screen via visibility:hidden).
+  // This way Google is already loaded when the start screen dismisses — no black flash.
+  const activeWv = wv()
+  if (activeWv && (!activeWv.src || activeWv.src === 'about:blank')) {
+    activeWv.src = window._homeUrl
+  }
+  addressBar.value = window._homeUrl
   btnBack.style.opacity    = '0.35'
   btnForward.style.opacity = '0.35'
 })()
 
-// Called by start-screen.js when the start screen is dismissed
+// Called by start-screen.js when the start screen is dismissed.
+// Home is already pre-loaded in init(); only navigate if the webview is still blank.
 window.loadHomeUrl = function() {
-  if (window._homeUrl && (wv().src === 'about:blank' || !wv().src)) {
-    wv().src = window._homeUrl
-    addressBar.value = window._homeUrl
+  const activeWv = wv()
+  if (!activeWv) return
+  const currentUrl = activeWv.getURL?.() || activeWv.src || ''
+  if (!currentUrl || currentUrl === 'about:blank') {
+    activeWv.src = window._homeUrl || 'https://www.google.com'
+    addressBar.value = activeWv.src
   }
 }

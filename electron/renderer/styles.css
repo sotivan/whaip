@@ -149,6 +149,7 @@ body {
   flex: 1;
   position: relative;
   overflow: hidden;
+  background: #fff;   /* prevents black flash while webview loads */
 }
 
 webview {
