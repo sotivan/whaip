@@ -628,11 +628,15 @@ window.whaip.onAgentMessage(async data => {
     return
   }
   if (data.type === 'bookmark:get_current') {
+    const pageUrl = webview.getURL?.() || webview.src
+    const m = pageUrl.match(/https?:\/\/([^/?#]+)/)
+    const domain = m ? m[1].replace(/^www\./, '') : ''
     window.whaip.sendToAgent({
-        type:  'bookmark:save',
-        url:   webview.getURL?.() || webview.src,
-        title: webview.getTitle?.() || document.title || '',
-        tags:  '',
+        type:    'bookmark:save',
+        url:     pageUrl,
+        title:   webview.getTitle?.() || '',
+        tags:    '',
+        favicon: domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '',
     })
     return
   }

@@ -185,18 +185,21 @@ class AgentLoop:
             self._geo_event.set()
 
         elif msg_type == "bookmark:save":
-            url   = data.get("url", "")
-            title = data.get("title", "")
-            tags  = data.get("tags", "")
+            url     = data.get("url", "")
+            title   = data.get("title", "")
+            tags    = data.get("tags", "")
+            favicon = data.get("favicon", "")
             if url:
-                self.memory.add_bookmark(url, title, tags)
+                self.memory.add_bookmark(url, title, tags, favicon)
                 asyncio.create_task(self.say(f"Marcador guardado: {title or url[:40]}"))
+                asyncio.create_task(self._push_bookmarks())
 
         elif msg_type == "bookmark:remove":
             url = data.get("url", "")
             if url:
                 self.memory.remove_bookmark(url)
                 asyncio.create_task(self.say("Marcador eliminado."))
+                asyncio.create_task(self._push_bookmarks())
 
         elif msg_type == "password:save":
             domain   = data.get("domain", "")
@@ -379,6 +382,13 @@ class AgentLoop:
         logger.info("🔊 %s", text)
         await self.broadcast({"type": "transcript", "role": "assistant", "text": text})
         await self.tts.speak(text)
+
+    async def _push_bookmarks(self) -> None:
+        """Send current bookmarks list to all Electron clients."""
+        await self.broadcast({
+            "type":      "bookmarks:list",
+            "bookmarks": self.memory.get_bookmarks(),
+        })
 
     async def ask_and_wait(self, question: str, timeout: float = 15.0) -> Optional[str]:
         """
@@ -617,6 +627,7 @@ class AgentLoop:
         if self.running and not self.memory.is_onboarding_done() and not self._onboarding_done:
             self._onboarding_done = True
             asyncio.create_task(self._run_onboarding())
+        asyncio.create_task(self._push_bookmarks())
 
         while self.running:
             try:

@@ -82,6 +82,12 @@ class UserMemory:
             );
         """)
         self._conn.commit()
+        # Migrate: add favicon column if missing
+        try:
+            self._conn.execute("ALTER TABLE bookmarks ADD COLUMN favicon TEXT DEFAULT ''")
+            self._conn.commit()
+        except Exception:
+            pass  # column already exists
 
     # ── Core get / set ─────────────────────────────────────────────────────
 
@@ -225,10 +231,10 @@ class UserMemory:
 
     # ── Bookmarks ────────────────────────────────────────────────────────────
 
-    def add_bookmark(self, url: str, title: str, tags: str = "") -> None:
+    def add_bookmark(self, url: str, title: str, tags: str = "", favicon: str = "") -> None:
         self._conn.execute(
-            "INSERT OR REPLACE INTO bookmarks (url, title, tags) VALUES (?, ?, ?)",
-            (url[:500], title[:200], tags),
+            "INSERT OR REPLACE INTO bookmarks (url, title, tags, favicon) VALUES (?, ?, ?, ?)",
+            (url[:500], title[:200], tags, favicon or ""),
         )
         self._conn.commit()
         logger.info("Bookmark saved: %s", title or url)
@@ -239,9 +245,9 @@ class UserMemory:
 
     def get_bookmarks(self) -> list:
         rows = self._conn.execute(
-            "SELECT url, title, tags FROM bookmarks ORDER BY created_at DESC"
+            "SELECT url, title, tags, favicon FROM bookmarks ORDER BY created_at ASC"
         ).fetchall()
-        return [{"url": r[0], "title": r[1], "tags": r[2]} for r in rows]
+        return [{"url": r[0], "title": r[1], "tags": r[2], "favicon": r[3]} for r in rows]
 
     def is_bookmarked(self, url: str) -> bool:
         return bool(self._conn.execute(
