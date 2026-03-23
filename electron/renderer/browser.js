@@ -347,10 +347,86 @@ function handleNavigate(url) {
 
 // ── Screenshot responder ──────────────────────────────────────────────────────
 
+// ── DOM snapshot extractor ────────────────────────────────────────────────────
+// Returns structured list of all visible interactive elements so Claude can
+// write precise CSS selectors instead of guessing pixel coordinates.
+
+const DOM_EXTRACTOR_JS = `
+(function() {
+  function vis(el) {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.top < window.innerHeight && r.bottom > 0
+      && window.getComputedStyle(el).visibility !== 'hidden'
+      && window.getComputedStyle(el).display !== 'none';
+  }
+  const out = { url: location.href, title: document.title, buttons: [], inputs: [], links: [], text: '' };
+
+  document.querySelectorAll('button,[role="button"],[type="submit"],[type="button"],[role="tab"],[role="menuitem"],[role="option"]').forEach(el => {
+    if (!vis(el)) return;
+    const r = el.getBoundingClientRect();
+    out.buttons.push({
+      text: (el.innerText || el.value || el.title || el.getAttribute('aria-label') || '').trim().slice(0, 60),
+      cls:  el.className.toString().trim().slice(0, 80),
+      id:   el.id || '',
+      x: Math.round(r.left + r.width / 2),
+      y: Math.round(r.top  + r.height / 2),
+    });
+  });
+
+  document.querySelectorAll('input:not([type="hidden"]),textarea,select').forEach(el => {
+    if (!vis(el)) return;
+    const r = el.getBoundingClientRect();
+    out.inputs.push({
+      type:        el.type || el.tagName.toLowerCase(),
+      placeholder: el.placeholder || '',
+      name:        el.name  || '',
+      id:          el.id    || '',
+      cls:         el.className.toString().trim().slice(0, 60),
+      value:       (el.value || '').slice(0, 40),
+      x: Math.round(r.left + r.width / 2),
+      y: Math.round(r.top  + r.height / 2),
+    });
+  });
+
+  const seenLinks = new Set();
+  document.querySelectorAll('a[href]').forEach(el => {
+    if (!vis(el) || !el.innerText.trim()) return;
+    const key = el.href.slice(0, 80) + '|' + el.innerText.trim().slice(0, 30);
+    if (seenLinks.has(key)) return;
+    seenLinks.add(key);
+    const r = el.getBoundingClientRect();
+    out.links.push({
+      text: el.innerText.trim().slice(0, 60),
+      href: el.href.slice(0, 100),
+      cls:  el.className.toString().trim().slice(0, 60),
+      id:   el.id || '',
+      x: Math.round(r.left + r.width / 2),
+      y: Math.round(r.top  + r.height / 2),
+    });
+  });
+
+  out.text = [...document.querySelectorAll('h1,h2,h3,[role="heading"],label')]
+    .filter(vis).map(e => e.innerText.trim()).filter(Boolean).slice(0, 15).join(' | ').slice(0, 400);
+
+  out.buttons = out.buttons.slice(0, 35);
+  out.inputs  = out.inputs.slice(0, 15);
+  out.links   = out.links.slice(0, 30);
+  return JSON.stringify(out);
+})()`
+
 window.whaip.onAgentMessage(async data => {
   if (data.type === 'screenshot:request') {
     const b64 = await window.whaip.captureScreenshot()
     window.whaip.sendToAgent({ type: 'screenshot:response', data: b64 })
+    return
+  }
+  if (data.type === 'dom:request') {
+    try {
+      const raw = await webview.executeJavaScript(DOM_EXTRACTOR_JS)
+      window.whaip.sendToAgent({ type: 'dom:response', data: raw })
+    } catch (e) {
+      window.whaip.sendToAgent({ type: 'dom:response', data: null })
+    }
     return
   }
   if (data.type === 'action' && data.action) {

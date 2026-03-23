@@ -58,9 +58,11 @@ class AgentLoop:
         self.running = False
         self._clients: set[WebSocketServerProtocol] = set()
 
-        # pending screenshot response from Electron
+        # pending screenshot / DOM responses from Electron
         self._screenshot_event  = asyncio.Event()
         self._pending_screenshot: Optional[str] = None
+        self._dom_event         = asyncio.Event()
+        self._pending_dom:       Optional[str] = None
         self._current_task: Optional[asyncio.Task] = None
         self._action_results: dict = {}   # action_id → result dict
 
@@ -125,6 +127,10 @@ class AgentLoop:
                 title=data.get("title", ""),
             )
 
+        elif msg_type == "dom:response":
+            self._pending_dom = data.get("data")
+            self._dom_event.set()
+
         elif msg_type == "action:result":
             action_id = data.get("action_id")
             if action_id:
@@ -135,6 +141,22 @@ class AgentLoop:
                     data.get("ok"),
                     data.get("error", data.get("result", "")),
                 )
+
+    # ── DOM snapshot request ───────────────────────────────────────────────
+
+    async def request_dom_snapshot(self, timeout: float = 2.5) -> Optional[str]:
+        """Ask Electron for a DOM snapshot; returns JSON string or None."""
+        if not self._clients:
+            return None
+        self._pending_dom = None
+        self._dom_event.clear()
+        await self.broadcast({"type": "dom:request"})
+        try:
+            await asyncio.wait_for(self._dom_event.wait(), timeout=timeout)
+            return self._pending_dom
+        except asyncio.TimeoutError:
+            logger.warning("DOM snapshot request timed out.")
+            return None
 
     # ── Screenshot request ─────────────────────────────────────────────────
 
@@ -151,6 +173,62 @@ class AgentLoop:
         except asyncio.TimeoutError:
             logger.warning("Screenshot request timed out.")
             return None
+
+    # ── Agent meta-commands (handle inline, don't cancel current task) ────
+
+    _VOICE_MAP = {
+        "adam":    "pNInz6obpgDQGcFmaJgB",
+        "hombre":  "pNInz6obpgDQGcFmaJgB",
+        "male":    "pNInz6obpgDQGcFmaJgB",
+        "antoni":  "ErXwobaYiN019PkySvjV",
+        "josh":    "TxGEqnHWrfWFTfGW9XjX",
+        "rachel":  "21m00Tcm4TlvDq8ikWAM",
+        "mujer":   "EXAVITQu4vr4xnSDxMaL",
+        "female":  "EXAVITQu4vr4xnSDxMaL",
+        "bella":   "EXAVITQu4vr4xnSDxMaL",
+    }
+
+    async def _handle_meta_command(self, intent: str) -> bool:
+        """
+        Handle agent-level commands without cancelling the current browser task.
+        Returns True if the command was handled here (don't start a new task).
+        """
+        import re
+        t = intent.lower()
+
+        # ── Voice change ──────────────────────────────────────────────────
+        if re.search(r"cambia|cambi|otra voz|voz de |change voice|voice", t):
+            for name, vid in self._VOICE_MAP.items():
+                if name in t:
+                    self.tts.set_voice(vid)
+                    await self.say(f"Cambiado a voz de {name.capitalize()}.")
+                    await self.broadcast({"type": "transcript", "role": "assistant",
+                                          "text": f"[voz → {name}]"})
+                    return True
+            # Generic "cambia la voz" without a name → pick the opposite gender
+            current = self.memory.get("elevenlabs_voice_id") or ""
+            if current in ("EXAVITQu4vr4xnSDxMaL", "21m00Tcm4TlvDq8ikWAM"):
+                self.tts.set_voice("pNInz6obpgDQGcFmaJgB")
+                await self.say("Cambiado a voz masculina.")
+            else:
+                self.tts.set_voice("EXAVITQu4vr4xnSDxMaL")
+                await self.say("Cambiado a voz femenina.")
+            return True
+
+        # ── Stop / cancel current task ────────────────────────────────────
+        if re.match(r"^(para|stop|cancela|detente|cancela todo)", t):
+            if self._current_task and not self._current_task.done():
+                self.tts.stop()
+                self._current_task.cancel()
+                try:
+                    await self._current_task
+                except asyncio.CancelledError:
+                    pass
+                await self.broadcast({"type": "status", "state": "idle"})
+                await self.say("Cancelado.")
+            return True
+
+        return False
 
     # ── Voice conversation helpers ─────────────────────────────────────────
 
@@ -204,16 +282,19 @@ class AgentLoop:
         await self.broadcast({"type": "status", "state": "thinking"})
 
         for step in range(MAX_STEPS):
-            # Skip screenshot for cheap actions that don't change page visually
-            # Only capture after: navigate, click, js, or every 3 steps as a sanity check
-            _VISUAL_ACTIONS = {None, "navigate", "click", "js", "scroll"}
-            need_screenshot = (last_action in _VISUAL_ACTIONS) or (step % 3 == 0)
+            # DOM snapshot: always (cheap JS, text-only context for Claude)
+            dom_snapshot = await self.request_dom_snapshot()
+
+            # Screenshot: only after navigation or every 5 steps (expensive vision)
+            _VISUAL_ACTIONS = {None, "navigate", "scroll"}
+            need_screenshot = (last_action in _VISUAL_ACTIONS) or (step % 5 == 0)
             screenshot = await self.request_screenshot() if need_screenshot else None
 
             cmd = await self.claude.decide(
                 voice_text=goal,
                 hand_pos=None,
                 screenshot_b64=screenshot,
+                dom_snapshot=dom_snapshot,
                 history=history,
                 memory=profile,
             )
@@ -335,7 +416,13 @@ class AgentLoop:
             logger.debug("Discarded (not a command): %s", raw[:60])
             return
 
-        # New command → cancel whatever is running + stop any in-progress audio
+        await self.broadcast({"type": "transcript", "role": "user", "text": intent})
+
+        # ── Agent meta-commands (voice, stop…) — run inline, keep current task ──
+        if await self._handle_meta_command(intent):
+            return
+
+        # ── Browser task — cancel any running task, start fresh ────────────
         if self._current_task and not self._current_task.done():
             self.tts.stop()   # kill audio immediately so new command can speak
             self._current_task.cancel()
@@ -346,7 +433,6 @@ class AgentLoop:
             await self.broadcast({"type": "status", "state": "idle"})
 
         logger.info("Command: %s", intent)
-        await self.broadcast({"type": "transcript", "role": "user", "text": intent})
         self._current_task = asyncio.create_task(self.run_task(intent))
 
     async def run(self) -> None:

@@ -1,7 +1,7 @@
 """
 WHAIP – Claude API client
 
-Agentic loop: Claude receives (screenshot + voice + history) and decides
+Agentic loop: Claude receives (DOM snapshot + optional screenshot + voice + history) and decides
 the next action. It keeps going until action=done or max_steps reached.
 Disabled silently if anthropic_api_key is empty.
 """
@@ -15,122 +15,115 @@ logger = logging.getLogger("whaip.claude")
 
 WHP_ACTIONS = {"click", "type", "scroll", "navigate", "wait", "js", "done", "speak", "ask", "set_voice"}
 
-SYSTEM_PROMPT = """You are WHAIP, an autonomous AI agent that controls a web browser AND has a voice conversation with the user.
+SYSTEM_PROMPT = """You are WHAIP, an autonomous AI agent that controls a web browser and has a voice conversation with the user.
 
 You receive:
-- A screenshot of the current browser state.
-- The user's voice command (the goal to achieve).
-- The user's profile/memory (name, address, preferences, etc.).
-- The history of actions already attempted this turn.
+- DOM SNAPSHOT: all visible buttons, inputs and links with their real CSS classes and IDs.
+- Optional screenshot (only on first step and after navigation).
+- User's voice goal, profile/memory, and history of previous actions with their results.
 
-Your job: decide the NEXT action to get closer to the goal.
-Keep acting until the goal is fully achieved, then return action=done.
+Your job: decide the NEXT single action to get closer to the goal. Keep acting until done.
 
 Respond ONLY with a valid JSON object — no markdown, no extra text:
 {
-  "action": "click" | "type" | "scroll" | "navigate" | "wait" | "js" | "speak" | "ask" | "done",
-  "x": <integer — for click>,
-  "y": <integer — for click>,
-  "text": "<for click/speak/ask/done: the text content>",
-  "memory_key": "<for ask: the profile key to store the answer in, e.g. 'address', 'food_preferences'>",
-  "code": "<for js: complete JavaScript to run in the page>",
+  "action": "js" | "navigate" | "scroll" | "speak" | "ask" | "set_voice" | "wait" | "done",
+  "code":      "<for js: JavaScript to run — ALWAYS return a descriptive string>",
+  "text":      "<for speak/ask/done: what to say aloud>",
   "direction": "up" | "down",
-  "reason": "<what you are doing and why — always present>"
+  "memory_key":"<for ask: key to store the answer, e.g. 'address'>",
+  "voice_id":  "<for set_voice>",
+  "reason":    "<one line: what you are doing and why>"
 }
 
-── CONVERSATIONAL ACTIONS ──────────────────────────────────────────────────────
-Use these BEFORE executing browser actions when you need information or want to confirm:
+══ HOW TO CLICK / INTERACT WITH ELEMENTS ══════════════════════════════════════════
 
-  speak — say something to the user (no response needed)
-    {"action":"speak","text":"Perfecto, buscando pizza en Torrejón ahora mismo.","reason":"..."}
+You receive a DOM SNAPSHOT with the REAL CSS classes and IDs of every visible element.
+ALWAYS use js action with precise selectors from the snapshot. Never guess pixel coordinates.
 
-  ask — ask the user a question and WAIT for their voice answer
-    {"action":"ask","text":"¿A qué dirección te lo envío?","memory_key":"address","reason":"..."}
-    {"action":"ask","text":"¿Tienes alguna preferencia de ingredientes?","memory_key":"food_preferences","reason":"..."}
+SELECTOR PRIORITY (use the first that matches):
+  1. By id:        document.querySelector('#element-id')
+  2. By class:     document.querySelector('.exact-class-from-snapshot')
+  3. By text:      [...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText))
+  4. By attribute: document.querySelector('input[name="field-name"]')
 
-  set_voice — change ElevenLabs voice (persisted in memory)
-    Common male voices:   "Adam" → voice_id "pNInz6obpgDQGcFmaJgB"
-                          "Antoni" → voice_id "ErXwobaYiN019PkySvjV"
-                          "Josh" → voice_id "TxGEqnHWrfWFTfGW9XjX"
-    Common female voices: "Rachel" → voice_id "21m00Tcm4TlvDq8ikWAM"
-                          "Bella" → voice_id "EXAVITQu4vr4xnSDxMaL"
-    {"action":"set_voice","voice_id":"pNInz6obpgDQGcFmaJgB","text":"Cambiado a voz masculina.","reason":"user requested male voice"}
+Reading the snapshot:
+  BOTONES: "Añadir al carrito" [cls=add-btn_xyz id=add @(340,520)]
+    → return clickEl(document.querySelector('#add'))
+    → or:    return clickEl(document.querySelector('.add-btn_xyz'))
+  INPUTS:  search [placeholder="Buscar" name=q cls=search_abc @(400,150)]
+    → const el=document.querySelector('input[name="q"],.search_abc'); return setInput(el,'pizza 4 quesos');
 
-  WHEN TO ASK vs EXECUTE:
-  - If the user profile already has the needed info → EXECUTE directly, don't ask again.
-  - If a key piece of info is missing AND it's critical for the task → ask ONCE, then execute.
-  - Simple tasks (play song, search, navigate) → NEVER ask, just execute.
-  - Food/delivery order → need address. If missing, ask. If present, use it directly.
-  - Login form → need email/password. If in profile, use them. If not, ask.
-  - After asking and getting answer → proceed with the task immediately.
+HELPER FUNCTIONS (always available in js actions):
+  clickEl(el_or_selector) — smart click; returns diagnostic if not found
+  setInput(el, value)     — React-safe value setter + fires input/change events
+  pressEnter(el)          — fires keydown/keypress/keyup Enter events
 
-  done with voice confirmation:
-    {"action":"done","text":"Listo, he buscado pizzerías cerca de tu dirección.","reason":"..."}
-    The "text" field in done will be spoken aloud to the user.
+COMMON PATTERNS:
+  // Click a button by its text
+  return clickEl([...document.querySelectorAll('button,[role="button"],a')].find(e=>/TEXTO/i.test(e.innerText)))
 
-── BROWSER ACTIONS ─────────────────────────────────────────────────────────────
+  // Fill a text input (React-safe) and press Enter
+  const el = document.querySelector('#id, input[name="name"], input[placeholder*="hint" i]');
+  return setInput(el,'VALUE') + ' | ' + pressEnter(el);
 
-CRITICAL — DO NOT TOUCH COOKIES OR ADS:
-- Cookie banners are dismissed automatically. NEVER use js/click to accept cookies. IGNORE them completely.
-- YouTube ads are skipped automatically. NEVER try to skip ads. Just proceed as if the ad isn't there.
-- If you see a cookie banner: skip it, do your actual task action instead.
-- If you waste a step on cookies or ads, that is a bug in your behavior.
+  // Select/dropdown
+  const s=document.querySelector('select[name="size"]'); s.value='M'; s.dispatchEvent(new Event('change',{bubbles:true})); return 'selected '+s.value;
 
-1. USE URL NAVIGATION FIRST. Most tasks are faster and 100% reliable via URL:
-   - YouTube search:  navigate → https://www.youtube.com/results?search_query=QUERY
-   - Google search:   navigate → https://www.google.com/search?q=QUERY
-   - Food delivery:   navigate → https://www.justeat.es or https://glovoapp.com
-   - If the user wants to search anything, ALWAYS use the search URL directly.
+  // Radio button (React needs synthetic events + label click)
+  const r=[...document.querySelectorAll('input[type="radio"]')].find(r=>(r.value+r.id+r.closest('label')?.innerText||'').toLowerCase().includes('mediana'));
+  if(r){r.checked=true;['change','click','input'].forEach(t=>r.dispatchEvent(new Event(t,{bubbles:true}))); (r.closest('label')||document.querySelector('label[for="'+r.id+'"]'))?.click(); return 'radio: '+r.value;}
+  return 'radio NOT FOUND: '+[...document.querySelectorAll('input[type="radio"]')].map(r=>r.value||r.id).join('|');
 
-2. COOKIE BANNERS — dismiss FIRST before any other action on a new page:
-   Use this exact JS (tries everything in order, last resort removes the overlay):
-   return (function(){
-     // 1. Click by CSS class (most reliable — use classes from "visible buttons" diagnostic)
-     const byClass = document.querySelector('[class*="modal-alert__actions__bt"],[class*="cookie-accept"],[class*="accept-all"],[class*="btn-accept"],[class*="agree"],[class*="consent-accept"],[id*="accept"],[id*="cookie"]');
-     if(byClass){byClass.click();return 'clicked class: '+byClass.className.slice(0,60);}
-     // 2. Click by button text
-     const texts=/aceptar|accept all|accepter|alle akzept|i agree|ok, acepto|acepto|got it|entendido|continuar|permitir|allow all/i;
-     const byText=[...document.querySelectorAll('button,[role="button"],a')].find(b=>texts.test(b.innerText));
-     if(byText){byText.click();return 'clicked text: '+byText.innerText.slice(0,40);}
-     // 3. Look inside iframes
-     for(const fr of document.querySelectorAll('iframe')){try{const d=fr.contentDocument;if(!d)continue;const b=d.querySelector('button,[role="button"]');if(b&&texts.test(b.innerText)){b.click();return 'iframe click: '+b.innerText.slice(0,40);}}catch(e){}}
-     // 4. Nuclear — hide all overlay/modal elements and re-enable scroll
-     let removed=0;
-     document.querySelectorAll('[class*="cookie"],[class*="consent"],[class*="gdpr"],[class*="overlay"],[class*="modal"],[id*="cookie"],[id*="consent"],[id*="gdpr"]').forEach(el=>{el.style.display='none';removed++;});
-     document.body.style.overflow='';document.documentElement.style.overflow='';
-     if(removed)return 'nuked '+removed+' overlay elements';
-     return 'no cookie banner found';
-   })()
+  // Close a modal — use classes from snapshot, then nuclear
+  return clickEl(document.querySelector('.modal-close,.close-btn,[aria-label="close"],[aria-label="cerrar"]'))
+    || (document.querySelectorAll('[class*="modal"],[class*="overlay"],[class*="dialog"]').forEach(e=>e.style.display='none'),'nuked');
 
-3. USE JS FOR BUTTON CLICKS — always use clickEl() helper, never ?.click() alone:
-   - Skip YouTube ad:  return clickEl('.ytp-skip-ad-button') || clickEl('.ytp-ad-skip-button-slot button') || clickEl('[class*="skip-ad"]')
-   - Click by text:    return clickEl([...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText)))
-   - IMPORTANT: clickEl() returns "NOT FOUND: ... visible buttons: CLASS1|CLASS2|..." if element missing.
-     READ the class names in that list — they are the REAL CSS classes you can target directly.
-     Example: if list shows "btn btn-primary modal-alert__actions__bt", use: document.querySelector('.modal-alert__actions__bt')
-   - FORM INPUTS — always use setInput() in ONE js action, never separate focus+type steps:
-     const el = document.querySelector('input[placeholder*="PLACEHOLDER" i], input[name*="NAME"]');
-     return setInput(el, 'VALUE') + ' | ' + pressEnter(el);
-   - ADDRESS FIELDS: const el = document.querySelector('input[placeholder*="direcci" i],input[placeholder*="address" i],input[name*="address"],input[id*="address"]'); return setInput(el, 'ADDRESS') + ' | ' + pressEnter(el);
-   - EMAIL/LOGIN FIELDS: const el = document.querySelector('input[type="email"],input[name*="email"],input[placeholder*="email" i],input[placeholder*="correo" i]'); return setInput(el, 'EMAIL');
-   - PASSWORD FIELDS:    const pwd = document.querySelector('input[type="password"]'); return setInput(pwd, 'PASSWORD_VALUE');
-   - RADIO BUTTONS / SIZE SELECTORS (React/Vue need synthetic events — NEVER just .click() the radio):
-     const radio = [...document.querySelectorAll('input[type="radio"]')].find(r => (r.value||r.id||r.closest('label')?.innerText||'').toLowerCase().includes('OPTION'));
-     if (radio) { radio.checked=true; ['change','click','input'].forEach(t=>radio.dispatchEvent(new Event(t,{bubbles:true,cancelable:true}))); const lbl=radio.closest('label')||document.querySelector('label[for="'+radio.id+'"]'); if(lbl){lbl.click();} return 'radio: '+(radio.value||radio.id); }
-     // Fallback: look for clickable cards/divs with matching text
-     const card = [...document.querySelectorAll('[class*="size"],[class*="option"],[class*="variant"],[role="radio"]')].find(e=>e.innerText.toLowerCase().includes('OPTION'));
-     if(card){card.click(); return 'card: '+card.innerText.slice(0,40);} return 'NOT FOUND — radio options: '+[...document.querySelectorAll('input[type="radio"]')].map(r=>r.value||r.id).join('|');
-   - DROPDOWN/SELECT: const sel=document.querySelector('select'); if(sel){sel.value='VALUE'; sel.dispatchEvent(new Event('change',{bubbles:true})); return 'selected: '+sel.value;}
-   - YouTube comment:  const box = document.querySelector('#simplebox-placeholder,#contenteditable-root,ytd-comment-simplebox-renderer'); if(box){box.click(); setTimeout(()=>{const ed=document.querySelector('#contenteditable-root'); if(ed){ed.focus(); document.execCommand('insertText',false,'TEXT');}},500);} return box?'clicked comment box':'NOT FOUND';
+══ NAVIGATION FIRST ════════════════════════════════════════════════════════════════
 
-4. NEVER repeat the same failed action. After 1 failure, switch approach completely.
-   - Cookie banner failed with text selector? → Use the nuclear JS above immediately.
-   - Cookie banner nuclear JS ran? → Assume dismissed, proceed with the task.
+For most tasks, NAVIGATE directly — it's instant and 100% reliable:
+  YouTube:       navigate → https://www.youtube.com/results?search_query=QUERY
+  Google:        navigate → https://www.google.com/search?q=QUERY
+  Just Eat ES:   navigate → https://www.just-eat.es/search?q=QUERY&postcode=POSTCODE
+  Glovo:         navigate → https://glovoapp.com
+  Amazon ES:     navigate → https://www.amazon.es/s?k=QUERY
 
-5. Return action=done ONLY when the goal is visibly achieved in the screenshot.
-   Always include a "text" field in done with a natural voice confirmation.
+══ COOKIES & ADS — IGNORE ══════════════════════════════════════════════════════════
 
-6. Reply in the same language the user spoke.""".strip()
+Cookie banners and YouTube ads are auto-dismissed by the system.
+NEVER spend a step on cookies or ads — they are already handled.
+If you see a banner, skip it completely and do your actual task action.
+
+══ CONVERSATIONAL ACTIONS ══════════════════════════════════════════════════════════
+
+speak — say something (no user response needed)
+  {"action":"speak","text":"Buscando pizza 4 quesos en Torrejón...","reason":"..."}
+
+ask — ask user and wait for voice answer
+  {"action":"ask","text":"¿A qué dirección te lo envío?","memory_key":"address","reason":"..."}
+
+set_voice — change ElevenLabs voice
+  Male:   Adam=pNInz6obpgDQGcFmaJgB  Antoni=ErXwobaYiN019PkySvjV  Josh=TxGEqnHWrfWFTfGW9XjX
+  Female: Rachel=21m00Tcm4TlvDq8ikWAM  Bella=EXAVITQu4vr4xnSDxMaL
+  {"action":"set_voice","voice_id":"pNInz6obpgDQGcFmaJgB","text":"Cambiado a Adam.","reason":"..."}
+
+When to ask vs execute:
+  - Profile already has the info → execute directly, never ask again.
+  - Simple tasks (search, play, navigate) → execute, never ask.
+  - Food order without address → ask once, then proceed.
+  - After getting an answer → proceed immediately.
+
+done — task complete:
+  {"action":"done","text":"Listo, he añadido la pizza al carrito.","reason":"..."}
+  The "text" field is spoken aloud. Always include it.
+
+══ ANTI-LOOP RULES ═════════════════════════════════════════════════════════════════
+
+- NEVER repeat an action that already failed. After 1 failure → completely different approach.
+- If a modal/popup blocks you: use the close pattern above ONCE. If it fails → nuclear JS.
+- If nuclear JS ran → assume modal gone, proceed with the actual task.
+- If same element not found twice → use navigate to a direct URL instead.
+
+Reply in the same language the user spoke.""".strip()
 
 
 class ClaudeClient:
@@ -162,8 +155,9 @@ class ClaudeClient:
         voice_text: Optional[str],
         hand_pos: Optional[Tuple[float, float]],
         screenshot_b64: Optional[str],
-        history: Optional[list] = None,   # list of previous {action, reason} dicts
-        memory=None,
+        history: Optional[list] = None,
+        memory: Optional[str] = None,
+        dom_snapshot: Optional[str] = None,
     ) -> dict:
         """
         Ask Claude for the next action given current state + history.
@@ -173,7 +167,9 @@ class ClaudeClient:
             return {"action": "wait", "reason": "Claude no configurado."}
 
         try:
-            content = self._build_content(voice_text, hand_pos, screenshot_b64, history or [], memory)
+            content = self._build_content(
+                voice_text, hand_pos, screenshot_b64, history or [], memory, dom_snapshot
+            )
 
             import asyncio
             loop = asyncio.get_running_loop()
@@ -181,7 +177,7 @@ class ClaudeClient:
                 None,
                 lambda: self._client.messages.create(
                     model="claude-sonnet-4-6",
-                    max_tokens=300,
+                    max_tokens=350,
                     system=SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": content}],
                 ),
@@ -203,9 +199,11 @@ class ClaudeClient:
         screenshot_b64: Optional[str],
         history: list,
         memory: Optional[str] = None,
+        dom_snapshot: Optional[str] = None,
     ) -> list:
         content = []
 
+        # Screenshot only when provided (first step + after navigation)
         if screenshot_b64:
             content.append({
                 "type": "image",
@@ -217,21 +215,86 @@ class ClaudeClient:
             })
 
         parts = []
+
+        # User profile
         if memory:
             parts.append(f"PERFIL DEL USUARIO:\n{memory}")
+
+        # Goal
         if voice_text:
-            parts.append(f"OBJETIVO DEL USUARIO: {voice_text}")
+            parts.append(f"OBJETIVO: {voice_text}")
+
+        # Hand position (MediaPipe, when available)
         if hand_pos:
             parts.append(f"Dedo índice en: x={hand_pos[0]:.0f}, y={hand_pos[1]:.0f}")
 
+        # DOM snapshot — the most important context for element targeting
+        if dom_snapshot:
+            try:
+                snap = json.loads(dom_snapshot)
+                lines = [f"DOM SNAPSHOT — {snap.get('url','')} | {snap.get('title','')}"]
+
+                btns = snap.get("buttons", [])
+                if btns:
+                    parts_b = []
+                    for b in btns:
+                        txt = b.get("text", "").strip()
+                        cls = b.get("cls", "").strip()
+                        bid = b.get("id", "").strip()
+                        x, y = b.get("x", 0), b.get("y", 0)
+                        desc = f'"{txt}"'
+                        if bid:   desc += f" [id={bid}]"
+                        if cls:   desc += f" [cls={cls[:50]}]"
+                        desc += f" @({x},{y})"
+                        parts_b.append(desc)
+                    lines.append("BOTONES: " + " | ".join(parts_b))
+
+                inps = snap.get("inputs", [])
+                if inps:
+                    parts_i = []
+                    for i in inps:
+                        desc = f'type={i.get("type","")} placeholder="{i.get("placeholder","")}"'
+                        if i.get("name"): desc += f' name={i["name"]}'
+                        if i.get("id"):   desc += f' id={i["id"]}'
+                        if i.get("cls"):  desc += f' cls={i["cls"][:40]}'
+                        desc += f' @({i.get("x",0)},{i.get("y",0)})'
+                        parts_i.append(desc)
+                    lines.append("INPUTS: " + " | ".join(parts_i))
+
+                lnks = snap.get("links", [])
+                if lnks:
+                    parts_l = []
+                    for lk in lnks[:15]:
+                        txt = lk.get("text", "").strip()
+                        href = lk.get("href", "")
+                        lid = lk.get("id", "")
+                        lcls = lk.get("cls", "")
+                        desc = f'"{txt}" href={href[:60]}'
+                        if lid:  desc += f" id={lid}"
+                        if lcls: desc += f" cls={lcls[:40]}"
+                        parts_l.append(desc)
+                    lines.append("LINKS: " + " | ".join(parts_l))
+
+                pg_text = snap.get("text", "")
+                if pg_text:
+                    lines.append(f"TEXTO VISIBLE: {pg_text}")
+
+                parts.append("\n".join(lines))
+            except Exception:
+                parts.append(f"DOM RAW: {dom_snapshot[:500]}")
+
+        # History
         if history:
-            parts.append("\nACCIONES YA INTENTADAS Y SUS RESULTADOS:")
+            parts.append("\nHISTORIAL DE ACCIONES:")
             for i, h in enumerate(history, 1):
                 result = h.get("result", "")
                 parts.append(f"  {i}. [{h.get('action')}] {h.get('reason','')} → {result}")
-            parts.append("\nAnaliza el screenshot y el historial. Si algo falló, prueba un enfoque COMPLETAMENTE distinto.")
+            parts.append(
+                "\nUSA el DOM SNAPSHOT para encontrar los selectores correctos. "
+                "Si algo falló, prueba un enfoque COMPLETAMENTE distinto."
+            )
         else:
-            parts.append("\nPrimera acción. Analiza el screenshot y decide qué hacer.")
+            parts.append("\nPrimera acción. Usa el DOM SNAPSHOT y decide qué hacer.")
 
         content.append({"type": "text", "text": "\n".join(parts)})
         return content
