@@ -1,39 +1,16 @@
-# Core
-websockets==12.0
-asyncio-mqtt==0.16.2
-pyyaml==6.0.1
+# WHAIP – Python agent dependencies
+# Installed automatically by scripts/install.sh
 
-# Voice — Whisper STT
-openai-whisper==20231117
-sounddevice==0.4.6
-numpy==1.26.4
+# ── Core ─────────────────────────────────────────────────────────────────────
+anthropic>=0.40.0          # Claude API (vision + intent classifier)
+pyyaml>=6.0                # whaip.config.yaml parsing
+websockets>=12.0           # Electron ↔ Python bridge
 
-# Vision — MediaPipe hand tracking
-mediapipe==0.10.11
-opencv-python==4.9.0.80
-Pillow==10.3.0
+# ── Voice input (STT) ────────────────────────────────────────────────────────
+openai-whisper>=20231117   # local speech-to-text, no API key needed
+sounddevice>=0.4.6         # microphone capture
+numpy>=1.24.0              # audio array processing
 
-# AI — Claude
-anthropic==0.25.1
-
-# TTS — ElevenLabs
-elevenlabs==1.1.2
-
-# Memory — SQLite ORM
-peewee==3.17.3
-
-# Sync — Supabase
-supabase==2.4.3
-
-# Auth — Google OAuth
-google-auth==2.29.0
-google-auth-oauthlib==1.2.0
-google-auth-httplib2==0.2.0
-
-# Networking — P2P
-libp2p==0.1.5
-
-# Utilities
-python-dotenv==1.0.1
-aiofiles==23.2.1
-requests==2.31.0
+# ── Voice output (TTS) ───────────────────────────────────────────────────────
+elevenlabs>=1.0.0          # ElevenLabs (optional — falls back if no API key)
+pyttsx3>=2.90              # offline TTS fallback, no API key needed

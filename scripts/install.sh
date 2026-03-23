@@ -4,8 +4,8 @@
 
 set -euo pipefail
 
-REPO="https://github.com/[usuario]/whaip"
-REPO_RAW="https://raw.githubusercontent.com/[usuario]/whaip/main"
+REPO="https://github.com/sotivan/whaip"
+REPO_RAW="https://raw.githubusercontent.com/sotivan/whaip/main"
 INSTALL_DIR="$HOME/.whaip"
 BIN_DIR="/usr/local/bin"
 CONFIG_DIR="$HOME/.whaip"
@@ -61,8 +61,9 @@ install_python_deps() {
   # shellcheck disable=SC1091
   source "$INSTALL_DIR/.venv/bin/activate"
   pip install --upgrade pip -q
-  info "Installing Python dependencies…"
+  info "Installing Python dependencies (this may take a few minutes — Whisper is ~150MB)…"
   pip install -r "$INSTALL_DIR/requirements.txt" -q
+  deactivate
 }
 
 # ── Config ─────────────────────────────────────────────────────────────────
