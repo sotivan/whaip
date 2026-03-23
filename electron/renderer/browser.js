@@ -66,7 +66,7 @@ webview.addEventListener('did-stop-loading', () => {
 
 async function executeAction(cmd) {
   switch (cmd.action) {
-    case 'click':     return handleClick(cmd.x, cmd.y)
+    case 'click':     return handleClick(cmd.x, cmd.y, cmd.text)
     case 'type':      return handleType(cmd.text)
     case 'scroll':    return handleScroll(cmd.direction)
     case 'navigate':  return handleNavigate(cmd.text)
@@ -76,17 +76,32 @@ async function executeAction(cmd) {
   }
 }
 
-function handleClick(x, y) {
-  webview.executeJavaScript(`
+function handleClick(x, y, buttonText) {
+  // If a button label is known, try to find it by text first (more reliable than coords)
+  const textScript = buttonText ? `
     (function() {
-      const el = document.elementFromPoint(${x}, ${y});
-      if (el) {
-        el.dispatchEvent(new MouseEvent('mousedown', { bubbles:true, clientX:${x}, clientY:${y} }));
-        el.dispatchEvent(new MouseEvent('mouseup',   { bubbles:true, clientX:${x}, clientY:${y} }));
-        el.click();
-      }
+      const text = ${JSON.stringify(buttonText)}.toLowerCase();
+      const candidates = [...document.querySelectorAll('button, [role="button"], a, input[type="submit"]')];
+      const el = candidates.find(e => e.textContent.trim().toLowerCase().includes(text));
+      if (el) { el.click(); return true; }
+      return false;
     })()
-  `).catch(console.error)
+  ` : 'false'
+
+  webview.executeJavaScript(textScript).then(found => {
+    if (found) return
+    // Fallback to coordinates
+    webview.executeJavaScript(`
+      (function() {
+        const el = document.elementFromPoint(${x}, ${y});
+        if (el) {
+          el.dispatchEvent(new MouseEvent('mousedown', { bubbles:true, clientX:${x}, clientY:${y} }));
+          el.dispatchEvent(new MouseEvent('mouseup',   { bubbles:true, clientX:${x}, clientY:${y} }));
+          el.click();
+        }
+      })()
+    `).catch(console.error)
+  }).catch(console.error)
 }
 
 function handleType(text) {

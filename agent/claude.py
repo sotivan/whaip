@@ -27,16 +27,17 @@ Your job: decide the single best next browser action.
 Respond ONLY with a valid JSON object, no markdown, no explanation:
 {
   "action": "click" | "type" | "scroll" | "navigate" | "wait" | "done",
-  "x": <integer pixel x — only for click>,
-  "y": <integer pixel y — only for click>,
-  "text": "<string — for type or navigate>",
+  "x": <integer pixel x — for click>,
+  "y": <integer pixel y — for click>,
+  "text": "<for click: visible label/text of the button to click | for type: text to type | for navigate: URL>",
   "direction": "up" | "down",
   "reason": "<brief explanation in the user's language, always present>"
 }
 
 Rules:
-- For navigation use action=navigate and text=URL.
+- For navigation use action=navigate and text=the full URL.
 - For typing into a field use action=type and text=what to type.
+- For click: set x,y to the element's coordinates AND set text to the visible label of the button/link (e.g. "Aceptar todo", "Search", "Sign in"). This helps find the element reliably.
 - If nothing to do yet, use action=wait.
 - NEVER include markdown fences or any text outside the JSON object.
 - Reply in the same language the user speaks.""".strip()

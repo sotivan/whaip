@@ -150,12 +150,7 @@ class AgentLoop:
 
         logger.info("Action: %s – %s", cmd.get("action"), cmd.get("reason"))
 
-        # 4. Show reason in sidebar
-        reason = cmd.get("reason", "")
-        if reason:
-            await self.broadcast({"type": "transcript", "role": "agent", "text": reason})
-
-        # 5. Send action to Electron for execution
+        # 4. Send action to Electron (reason shown by sidebar via action message)
         await self.broadcast({"type": "action", **cmd})
         await self.broadcast({"type": "status", "state": "idle"})
 
