@@ -46,9 +46,9 @@ window.hideStartScreen = function() {
 startMicBtn.addEventListener('click', () => {
   startMicBtn.classList.add('ss-active')
   startHint.textContent = 'Escuchando…'
-  // Trigger the real topbar mic toggle
+  // Trigger the real topbar mic toggle — start screen stays visible until
+  // the agent responds with an action/transcript (see onAgentMessage below)
   document.getElementById('btn-mic-toggle').click()
-  setTimeout(window.hideStartScreen, 400)
 })
 
 // ── Settings panel ────────────────────────────────────────────────────────────
@@ -80,8 +80,8 @@ window.whaip.onAgentMessage(data => {
     const name = data.name || ''
     startName.textContent = name ? `, ${name}` : ''
   }
-  // Auto-hide as soon as agent does anything
-  if (data.type === 'transcript' || data.type === 'action' || data.type === 'status') {
+  // Auto-hide when agent sends a real response (not mere status pings)
+  if (data.type === 'transcript' || data.type === 'action') {
     window.hideStartScreen()
   }
 })

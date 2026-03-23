@@ -680,19 +680,14 @@ function showPasswordSavePrompt(domain) {
 ;(async function init() {
   const cfg = await window.whaip.getConfig()
   window._homeUrl = cfg?.browser?.home_url || 'https://www.google.com'
-  // Pre-load home URL now (webview is hidden behind start screen via visibility:hidden).
-  // This way Google is already loaded when the start screen dismisses — no black flash.
-  const activeWv = wv()
-  if (activeWv && (!activeWv.src || activeWv.src === 'about:blank')) {
-    activeWv.src = window._homeUrl
-  }
-  addressBar.value = window._homeUrl
+  // Webview stays on about:blank — navigation happens when the agent responds
+  addressBar.value = ''
   btnBack.style.opacity    = '0.35'
   btnForward.style.opacity = '0.35'
 })()
 
-// Called by start-screen.js when the start screen is dismissed.
-// Home is already pre-loaded in init(); only navigate if the webview is still blank.
+// Called by start-screen.js when dismissed via address bar or new-tab.
+// When the user dismisses via voice the agent's navigate action handles navigation.
 window.loadHomeUrl = function() {
   const activeWv = wv()
   if (!activeWv) return
