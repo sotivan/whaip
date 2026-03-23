@@ -44,11 +44,13 @@ PRIORITY RULES — follow in this order:
    - YouTube video:   navigate → https://www.youtube.com/watch?v=VIDEO_ID
    - If the user wants to search anything, ALWAYS use the search URL directly.
 
-2. USE JS FOR BUTTON CLICKS when coordinate clicks fail:
-   - Skip YouTube ad:  document.querySelector('.ytp-skip-ad-button,.ytp-ad-skip-button,[class*="skip"]')?.click()
-   - Accept cookies:   [...document.querySelectorAll('button')].find(b=>/aceptar|accept/i.test(b.innerText))?.click()
-   - Click by text:    [...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText))?.click()
-   - Use setInput(el, value) + pressEnter(el) ONLY for simple non-React inputs.
+2. USE JS FOR BUTTON CLICKS — always use clickEl() helper, never ?.click() alone:
+   - Skip YouTube ad:  return clickEl('.ytp-skip-ad-button') || clickEl('.ytp-ad-skip-button-slot button') || clickEl('[class*="skip-ad"]')
+   - Accept cookies:   return clickEl([...document.querySelectorAll('button')].find(b=>/aceptar|accept/i.test(b.innerText)))
+   - Click by text:    return clickEl([...document.querySelectorAll('button,a,[role="button"]')].find(e=>/TEXT/i.test(e.innerText)))
+   - IMPORTANT: clickEl() returns "NOT FOUND: ... visible buttons: X|Y|Z" if element missing.
+     If result says NOT FOUND, read the visible buttons list and use the correct selector next time.
+   - Use setInput(el, value) + pressEnter(el) for text inputs. Both return status strings.
 
 3. NEVER repeat the same failed action. After 1 failure, switch approach completely:
    - Click failed once? → Use JS with text selector.

@@ -83,21 +83,36 @@ function handleJS(code, actionId) {
 
   const wrapped = `
     (function() {
+      // ── Helpers available to Claude-generated code ──
       function setInput(el, value) {
-        if (!el) return false;
+        if (!el) return 'ERROR: el is null';
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
         if (setter) setter.set.call(el, value);
         else el.value = value;
         el.dispatchEvent(new Event('input',  { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
+        return 'ok: set "' + value + '" on ' + (el.id || el.className || el.tagName);
       }
       function pressEnter(el) {
-        if (!el) return;
+        if (!el) return 'ERROR: el is null';
         el.dispatchEvent(new KeyboardEvent('keydown',  { key:'Enter', keyCode:13, bubbles:true }));
         el.dispatchEvent(new KeyboardEvent('keypress', { key:'Enter', keyCode:13, bubbles:true }));
         el.dispatchEvent(new KeyboardEvent('keyup',    { key:'Enter', keyCode:13, bubbles:true }));
+        return 'ok: enter pressed';
       }
+      function clickEl(selector) {
+        const el = typeof selector === 'string' ? document.querySelector(selector) : selector;
+        if (!el) {
+          // Return diagnostic: what buttons ARE in the page
+          const btns = [...document.querySelectorAll('button,[role="button"]')]
+            .map(b => (b.className || b.id || b.innerText || '').slice(0,40))
+            .filter(Boolean).slice(0,8).join(' | ');
+          return 'NOT FOUND: ' + (typeof selector === 'string' ? selector : '?') + ' — visible buttons: ' + btns;
+        }
+        el.click();
+        return 'clicked: ' + (el.className || el.id || el.innerText || el.tagName).slice(0,60);
+      }
+      // ── Claude code ──
       return (function(){ ${code} })();
     })()
   `
