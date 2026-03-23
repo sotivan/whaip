@@ -92,20 +92,17 @@ class AgentLoop:
     def register_client(self, ws: WebSocketServerProtocol) -> None:
         self._clients.add(ws)
         logger.info("Electron connected (%d clients)", len(self._clients))
-        if len(self._clients) == 1 and not self._onboarding_done:
-            # First connection — trigger onboarding check after a short settle
-            asyncio.get_event_loop().call_later(1.5, self._schedule_onboarding)
-
-    def _schedule_onboarding(self) -> None:
-        if not self.memory.is_onboarding_done():
-            asyncio.ensure_future(self._run_onboarding())
 
     async def _run_onboarding(self) -> None:
-        self._onboarding_done = True   # prevent re-trigger
-        self.voice.set_active(False)   # mic off during onboarding
-        flow = OnboardingFlow(self)
-        await flow.run()
-        self.voice.set_active(False)   # keep mic off — user presses button to start
+        self._onboarding_done = True
+        self.voice.set_active(False)
+        try:
+            flow = OnboardingFlow(self)
+            await flow.run()
+        except Exception as exc:
+            logger.exception("Onboarding error: %s", exc)
+        finally:
+            self.voice.set_active(False)  # keep mic off — user presses button to start
 
     def unregister_client(self, ws: WebSocketServerProtocol) -> None:
         self._clients.discard(ws)
@@ -314,9 +311,11 @@ class AgentLoop:
     async def ask_and_wait(self, question: str, timeout: float = 15.0) -> Optional[str]:
         """
         Speak a question, then wait for the user's voice answer.
+        Temporarily enables the mic even if it was off (e.g. during onboarding).
         Returns the transcribed answer or None on timeout.
         """
         self._waiting_for_answer = True
+        self.voice.set_active(True)    # always enable mic for answering
         await self.say(question)
         await self.broadcast({"type": "status", "state": "listening"})
 
@@ -333,6 +332,7 @@ class AgentLoop:
             return None
         finally:
             self._waiting_for_answer = False
+            self.voice.set_active(False)   # back to off until user re-activates
             await self.broadcast({"type": "status", "state": "thinking"})
 
     # ── Agentic task loop ─────────────────────────────────────────────────
@@ -501,6 +501,14 @@ class AgentLoop:
         self.running = True
         self.voice.set_active(False)   # mic OFF until user presses the button
         interval = self.config.get("agent", {}).get("loop_interval_ms", 200) / 1000
+
+        # Wait for first Electron connection, then start onboarding if needed
+        while self.running and not self._clients:
+            await asyncio.sleep(0.2)
+        if self.running and not self.memory.is_onboarding_done() and not self._onboarding_done:
+            self._onboarding_done = True
+            asyncio.create_task(self._run_onboarding())
+
         while self.running:
             try:
                 await self.tick()
