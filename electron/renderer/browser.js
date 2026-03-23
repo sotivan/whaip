@@ -258,6 +258,10 @@ function hideAICursor() {
 // ── Click handler — real Chromium input events + AI cursor ────────────────────
 
 function handleClick(x, y, buttonText) {
+  // Validate coords — sendInputEvent crashes with non-integers
+  x = Math.round(Number(x) || 0)
+  y = Math.round(Number(y) || 0)
+
   // Step 1: move cursor visually
   showAICursor(x, y)
 

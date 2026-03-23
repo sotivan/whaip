@@ -192,7 +192,7 @@ class AgentLoop:
         Claude acts → sees result → acts again until done or max_steps.
         Supports ask/speak actions for conversational clarification.
         """
-        MAX_STEPS  = 12
+        MAX_STEPS  = 20
         STEP_DELAY = 1.5   # seconds between actions (let page settle)
         history    = []
         action_counter = 0

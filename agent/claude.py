@@ -108,8 +108,11 @@ CRITICAL — DO NOT TOUCH COOKIES OR ADS:
    - IMPORTANT: clickEl() returns "NOT FOUND: ... visible buttons: CLASS1|CLASS2|..." if element missing.
      READ the class names in that list — they are the REAL CSS classes you can target directly.
      Example: if list shows "btn btn-primary modal-alert__actions__bt", use: document.querySelector('.modal-alert__actions__bt')
-   - Use setInput(el, value) + pressEnter(el) for text inputs. Both return status strings.
-   - EMAIL/LOGIN FIELDS: const email = document.querySelector('input[type="email"],input[name*="email"],input[name*="mail"],input[id*="email"],input[placeholder*="email" i],input[placeholder*="correo" i]'); return setInput(email, 'EMAIL_VALUE');
+   - FORM INPUTS — always use setInput() in ONE js action, never separate focus+type steps:
+     const el = document.querySelector('input[placeholder*="PLACEHOLDER" i], input[name*="NAME"]');
+     return setInput(el, 'VALUE') + ' | ' + pressEnter(el);
+   - ADDRESS FIELDS: const el = document.querySelector('input[placeholder*="direcci" i],input[placeholder*="address" i],input[name*="address"],input[id*="address"]'); return setInput(el, 'ADDRESS') + ' | ' + pressEnter(el);
+   - EMAIL/LOGIN FIELDS: const el = document.querySelector('input[type="email"],input[name*="email"],input[placeholder*="email" i],input[placeholder*="correo" i]'); return setInput(el, 'EMAIL');
    - PASSWORD FIELDS:    const pwd = document.querySelector('input[type="password"]'); return setInput(pwd, 'PASSWORD_VALUE');
    - YouTube comment:  const box = document.querySelector('#simplebox-placeholder,#contenteditable-root,ytd-comment-simplebox-renderer'); if(box){box.click(); setTimeout(()=>{const ed=document.querySelector('#contenteditable-root'); if(ed){ed.focus(); document.execCommand('insertText',false,'TEXT');}},500);} return box?'clicked comment box':'NOT FOUND';
 
