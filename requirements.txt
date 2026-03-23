@@ -14,3 +14,29 @@ numpy>=1.24.0              # audio array processing
 # ── Voice output (TTS) ───────────────────────────────────────────────────────
 elevenlabs>=1.0.0          # ElevenLabs (optional — falls back if no API key)
 pyttsx3>=2.90              # offline TTS fallback, no API key needed
+
+# ── PENDIENTE DE IMPLEMENTAR ─────────────────────────────────────────────────
+# Descomenta estos bloques cuando implementes cada módulo.
+# NO descomentes antes — algunos paquetes son pesados o pueden fallar en Mac/Win.
+
+# Vision — MediaPipe hand tracking (agent/vision.py)
+# mediapipe>=0.10.11
+# opencv-python>=4.9.0
+# Pillow>=10.3.0
+
+# Memory sync — Supabase (agent/memory.py sync remoto)
+# supabase>=2.4.0
+
+# Google integrations — Gmail, Calendar, Drive (agent/google.py)
+# google-auth>=2.29.0
+# google-auth-oauthlib>=1.2.0
+# google-auth-httplib2>=0.2.0
+# google-api-python-client>=2.125.0
+
+# P2P Network — WHP Network (network/)
+# libp2p>=0.1.5        ← verificar disponibilidad en PyPI antes de descomentar
+# aiohttp>=3.9.0       ← necesario para gateway HTTP del nodo
+
+# Productividad post-MVP
+# notion-client>=2.2.0
+# spotipy>=2.23.0      ← Spotify
