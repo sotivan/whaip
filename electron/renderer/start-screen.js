@@ -16,14 +16,20 @@ const settingsPanel   = document.getElementById('start-settings-panel')
 const themeToggle     = document.getElementById('theme-toggle')
 
 // ── Webview visibility helpers ────────────────────────────────────────────────
+// We cannot use visibility:hidden — Electron collapses the webview viewport to
+// 0 height, causing pages to render at a tiny size after restore.
+// Instead we move webviews 200vw off-screen via transform; the compositing
+// layer follows the transform (so the webview is off-screen) but the layout
+// size — and therefore the viewport reported to the page — stays correct.
 
 function setWebviewsVisible(visible) {
   document.querySelectorAll('webview').forEach(wv => {
-    wv.style.visibility = visible ? '' : 'hidden'
+    wv.style.transform    = visible ? '' : 'translateX(-200vw)'
+    wv.style.pointerEvents = visible ? '' : 'none'
   })
 }
 
-// Hide all webviews immediately so they don't bleed through the start screen
+// Move all webviews off-screen immediately so they don't bleed through the start screen
 setWebviewsVisible(false)
 
 // ── Visibility ────────────────────────────────────────────────────────────────
@@ -36,9 +42,8 @@ window.showStartScreen = function() {
 window.hideStartScreen = function() {
   if (startScreen.classList.contains('ss-gone')) return  // already hidden
   startScreen.classList.add('ss-gone')
-  // Restore webviews — kick resize so Electron recalculates webview viewport
+  // Move webviews back on-screen
   setWebviewsVisible(true)
-  setTimeout(() => window.dispatchEvent(new Event('resize')), 50)
   if (typeof window.loadHomeUrl === 'function') window.loadHomeUrl()
 }
 
