@@ -27,7 +27,7 @@ function createTab(url) {
   const wv  = document.createElement('webview')
   wv.setAttribute('allowpopups', '')
   wv.setAttribute('webpreferences', 'contextIsolation=false, nodeIntegration=false')
-  wv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:none'
+  wv.style.cssText = 'flex:1;min-height:0;width:100%;display:none'
   wv.src = url || 'https://www.google.com'
 
   // Bind per-webview events (address bar, title, loading state)
@@ -209,7 +209,7 @@ document.addEventListener('keydown', e => {
   const existing = document.getElementById('webview')
   if (existing) {
     const id  = 'tab-' + Date.now()
-    existing.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block'
+    existing.style.cssText = 'flex:1;min-height:0;width:100%;display:block'
     const tab = { id, url: existing.src || 'https://www.google.com', title: 'Nueva pestaña', favicon: '', webview: existing }
     _tabs.push(tab)
     _activeId = id

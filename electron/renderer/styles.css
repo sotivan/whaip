@@ -148,17 +148,22 @@ body {
 /* ── Browser pane ─────────────────────────────────────────────────────── */
 #browser-pane {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   position: relative;
   overflow: hidden;
   background: var(--color-bg);
 }
 
+/* Webview fills browser-pane via flexbox (not position:absolute).
+   Electron doesn't reliably resolve inset:0 height inside a flex item
+   with no explicit height — using flex:1 is more robust. */
 webview {
-  display: block;
-  position: absolute;
-  inset: 0;
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  height: 100%;
+  display: block;
 }
 
 #hand-overlay {
