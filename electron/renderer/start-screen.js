@@ -36,8 +36,9 @@ window.showStartScreen = function() {
 window.hideStartScreen = function() {
   if (startScreen.classList.contains('ss-gone')) return  // already hidden
   startScreen.classList.add('ss-gone')
-  // Restore webviews and load home URL
+  // Restore webviews — kick resize so Electron recalculates webview viewport
   setWebviewsVisible(true)
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 50)
   if (typeof window.loadHomeUrl === 'function') window.loadHomeUrl()
 }
 
